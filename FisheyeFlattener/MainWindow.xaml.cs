@@ -19,6 +19,12 @@ public partial class MainWindow : System.Windows.Window
     private const double DefaultYawDeg = 0.0;
     private const double DefaultPitchDeg = -60.0;
 
+    // Rectilinear (flat-photo) projection makes off-center content lean, worse at
+    // wide FOV and wide pan angles - there's no way to eliminate it while staying
+    // rectilinear, so we cap both to keep it from getting severe.
+    private const double MaxYawDeg = 100.0;
+    private const double MinYawDeg = -100.0;
+
     private string? _sourcePath;
     private bool _isVideo;
     private Mat? _previewFrame; // frame 0, immutable reference used for calibration
@@ -130,7 +136,7 @@ public partial class MainWindow : System.Windows.Window
         SourceFlipVCheck.IsChecked = false;
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        FovSlider.Value = 90;
+        FovSlider.Value = 60;
         RollSlider.Value = 0;
         _isSettingLevel = false;
         _levelPoint1 = null;
@@ -173,7 +179,7 @@ public partial class MainWindow : System.Windows.Window
     {
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        FovSlider.Value = 90;
+        FovSlider.Value = 60;
         RollSlider.Value = 0;
         _isSettingLevel = false;
         _levelPoint1 = null;
@@ -197,10 +203,10 @@ public partial class MainWindow : System.Windows.Window
                 _pitchDeg = Clamp(_pitchDeg - KeyStepDeg, -90, 90);
                 break;
             case Key.Left:
-                _yawDeg = NormalizeAngleDeg(_yawDeg - KeyStepDeg);
+                _yawDeg = Clamp(_yawDeg - KeyStepDeg, MinYawDeg, MaxYawDeg);
                 break;
             case Key.Right:
-                _yawDeg = NormalizeAngleDeg(_yawDeg + KeyStepDeg);
+                _yawDeg = Clamp(_yawDeg + KeyStepDeg, MinYawDeg, MaxYawDeg);
                 break;
             default:
                 return;
@@ -289,10 +295,10 @@ public partial class MainWindow : System.Windows.Window
 
         // "grab and drag the image" feel: dragging right reveals what was to the left
         // (yaw decreases), dragging down reveals what was above (pitch increases).
-        // Yaw wraps continuously (not clamped) so you can keep dragging the same
-        // direction and pan all the way around 360°; pitch stays clamped since past
-        // ±90° would flip the view upside down.
-        _yawDeg = NormalizeAngleDeg(_dragStartYaw - dx * degPerPixel);
+        // Yaw is clamped (not wrapped): a rectilinear view leans off-center content
+        // more the farther it pans, so instead of allowing a full 360° spin (which
+        // gets badly stretched near the edges), we cap the pan range.
+        _yawDeg = Clamp(_dragStartYaw - dx * degPerPixel, MinYawDeg, MaxYawDeg);
         _pitchDeg = Clamp(_dragStartPitch + dy * degPerPixel, -90, 90);
 
         // Rebuilding the map is cheap (a few ms, parallelized across rows), so render

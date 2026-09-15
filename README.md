@@ -59,7 +59,17 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    scroll to zoom in/out. This is a virtual PTZ camera: the flattened view
    always looks like a normal photo, and dragging moves what you're looking
    at, like panning a photo viewer. **Reset View** puts it back to the
-   default framing.
+   default framing. Arrow keys work too (click the preview first to focus
+   it).
+
+   This is a *rectilinear* (flat-photo) projection, which has an inherent
+   property: content leans/tilts more the farther it sits from the center
+   of frame, and that lean visibly changes as you pan past it (it can look
+   like "rotation" even though only yaw is changing — that's not a bug, all
+   flat-photo-style projections do this at wide field of view; a security
+   camera's live PTZ view has the same behavior). To keep it from getting
+   severe, zoom defaults to 60° (max 100°) and pan is capped to ±100°
+   instead of allowing a full 360° spin.
 5. The preview updates live as you drag or adjust sliders (debounced
    ~60ms). Hit **Export Flattened...** to write the *current view* as a
    full-resolution image, or process an entire video through that same
