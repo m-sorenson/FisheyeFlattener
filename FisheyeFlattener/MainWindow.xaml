@@ -20,21 +20,36 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Background="#202020" BorderBrush="#404040" BorderThickness="1">
                 <Image x:Name="PreviewImage" Stretch="Uniform" Margin="4"/>
             </Border>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
+            <Grid x:Name="PlaybackPanel" Grid.Row="1" Margin="0,8,0,0" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="PlayPauseButton" Grid.Column="0" Content="Play" Padding="10,5" Width="70"
+                        Click="PlayPauseButton_Click"/>
+                <Slider x:Name="PositionSlider" Grid.Column="1" VerticalAlignment="Center" Margin="8,0"
+                        ValueChanged="PositionSlider_ValueChanged"/>
+                <TextBlock x:Name="TimeText" Grid.Column="2" Text="0:00 / 0:00" VerticalAlignment="Center"
+                           MinWidth="90" HorizontalAlignment="Right"/>
+            </Grid>
+
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                 <Button x:Name="OpenButton" Content="Open Fisheye File..." Padding="10,5" Click="OpenButton_Click"/>
                 <Button x:Name="ExportButton" Content="Export Flattened..." Padding="10,5" Margin="8,0,0,0"
                         IsEnabled="False" Click="ExportButton_Click"/>
             </StackPanel>
 
-            <ProgressBar x:Name="ExportProgress" Grid.Row="2" Height="18" Margin="0,8,0,0" Visibility="Collapsed"/>
+            <ProgressBar x:Name="ExportProgress" Grid.Row="3" Height="18" Margin="0,8,0,0" Visibility="Collapsed"/>
 
-            <TextBlock x:Name="StatusText" Grid.Row="3" Margin="0,6,0,0"
+            <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,6,0,0"
                        Text="Open an exported Protect fisheye image or clip to begin."/>
         </Grid>
 

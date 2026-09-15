@@ -78,6 +78,12 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 8. **Output Adjustments**: flip and pan (nudge) the final flattened result
    after dewarping — flip for a mirrored final view, Pan X/Y to shift the
    framing without touching yaw/pitch/azimuth. "Reset pan" zeroes both.
+9. For video, a playback bar appears under the preview — **Play/Pause**,
+   a scrub slider, and elapsed/total time. Playback shows the *flattened*
+   result live (not the raw fisheye), using whatever calibration/mode/flip
+   settings are currently set. Dragging the scrub bar pauses and seeks.
+   Adjusting a slider while playing updates the dewarp map for the next
+   frame without interrupting playback.
 
 ## How it works
 

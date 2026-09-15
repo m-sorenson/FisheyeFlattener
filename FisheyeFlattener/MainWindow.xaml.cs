@@ -17,8 +17,20 @@ public partial class MainWindow : System.Windows.Window
 
     private string? _sourcePath;
     private bool _isVideo;
-    private Mat? _previewFrame;
+    private Mat? _previewFrame; // frame 0, immutable reference used for calibration
+    private Mat? _currentFrame; // whatever raw frame is currently displayed (playback/seek swap this)
     private CircleCalibration? _calib;
+
+    private Mat? _cachedMapX;
+    private Mat? _cachedMapY;
+
+    // Playback
+    private VideoCapture? _playbackCapture;
+    private DispatcherTimer? _playbackTimer;
+    private bool _isPlaying;
+    private bool _suppressSeek;
+    private double _playbackFps = 30.0;
+    private int _playbackTotalFrames;
 
     // Field initializer: NumericSlider controls fire ValueChanged as soon as XAML
     // assigns their initial Value during InitializeComponent(), so this must exist
@@ -30,10 +42,11 @@ public partial class MainWindow : System.Windows.Window
         _previewDebounce.Tick += (_, _) =>
         {
             _previewDebounce.Stop();
-            UpdatePreview();
+            OnParametersChanged();
         };
 
         InitializeComponent();
+        Closed += (_, _) => ReleaseVideoResources();
     }
 
     // ------------------------------------------------------------- events --
@@ -58,20 +71,41 @@ public partial class MainWindow : System.Windows.Window
         }
 
         Mat frame;
+        VideoCapture? capture = null;
         try
         {
-            frame = isVideo ? VideoProcessor.GetFirstFrame(dialog.FileName) : ImageProcessor.Load(dialog.FileName);
+            if (isVideo)
+            {
+                capture = new VideoCapture(dialog.FileName);
+                if (!capture.IsOpened())
+                    throw new FileNotFoundException($"Could not open video: {dialog.FileName}");
+                frame = new Mat();
+                if (!capture.Read(frame) || frame.Empty())
+                    throw new IOException($"Could not read a frame from: {dialog.FileName}");
+            }
+            else
+            {
+                frame = ImageProcessor.Load(dialog.FileName);
+            }
         }
         catch (Exception ex)
         {
+            capture?.Dispose();
             MessageBox.Show(this, ex.Message, "Could not open file", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
         _sourcePath = dialog.FileName;
         _isVideo = isVideo;
+
         _previewFrame?.Dispose();
         _previewFrame = frame;
+
+        _currentFrame?.Dispose();
+        _currentFrame = frame.Clone();
+
+        ReleaseVideoResources();
+        SetUpPlayback(isVideo, capture);
 
         // fresh file -> fresh orientation/framing state
         SourceFlipHCheck.IsChecked = false;
@@ -86,7 +120,7 @@ public partial class MainWindow : System.Windows.Window
 
         ExportButton.IsEnabled = true;
         StatusText.Text = $"Loaded {(isVideo ? "video" : "image")}: {Path.GetFileName(dialog.FileName)}";
-        UpdatePreview();
+        OnParametersChanged();
     }
 
     private void AutoDetectButton_Click(object sender, RoutedEventArgs e)
@@ -96,7 +130,7 @@ public partial class MainWindow : System.Windows.Window
         using var working = Transform.FlipClone(_previewFrame, SourceFlipHCheck.IsChecked == true, SourceFlipVCheck.IsChecked == true);
         _calib = Calibration.DefaultCalibration(working);
         SyncCalibrationControls();
-        UpdatePreview();
+        OnParametersChanged();
     }
 
     private void SourceFlipH_Changed(object sender, RoutedEventArgs e)
@@ -147,7 +181,7 @@ public partial class MainWindow : System.Windows.Window
                 ReferenceSlider.Value = -90;
                 break;
         }
-        UpdatePreview();
+        OnParametersChanged();
     }
 
     private void ModeCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -156,7 +190,7 @@ public partial class MainWindow : System.Windows.Window
         bool perspective = ModeCombo.SelectedIndex == 0;
         PerspectivePanel.Visibility = perspective ? Visibility.Visible : Visibility.Collapsed;
         PanoramaPanel.Visibility = perspective ? Visibility.Collapsed : Visibility.Visible;
-        UpdatePreview();
+        OnParametersChanged();
     }
 
     private void Param_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -164,6 +198,144 @@ public partial class MainWindow : System.Windows.Window
         _previewDebounce.Stop();
         _previewDebounce.Start();
     }
+
+    // --------------------------------------------------------- playback --
+
+    private void SetUpPlayback(bool isVideo, VideoCapture? capture)
+    {
+        _playbackCapture = capture;
+
+        if (!isVideo || capture == null)
+        {
+            PlaybackPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _playbackFps = capture.Fps > 0 ? capture.Fps : 30.0;
+        _playbackTotalFrames = capture.FrameCount;
+
+        _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.0 / _playbackFps) };
+        _playbackTimer.Tick += PlaybackTimer_Tick;
+
+        _suppressSeek = true;
+        PositionSlider.Minimum = 0;
+        PositionSlider.Maximum = Math.Max(_playbackTotalFrames - 1, 0);
+        PositionSlider.Value = 0;
+        _suppressSeek = false;
+
+        _isPlaying = false;
+        PlayPauseButton.Content = "Play";
+        PlaybackPanel.Visibility = Visibility.Visible;
+        UpdateTimeText(0);
+    }
+
+    private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_playbackCapture == null)
+            return;
+        if (_isPlaying)
+            PausePlayback();
+        else
+            StartPlayback();
+    }
+
+    private void StartPlayback()
+    {
+        if (_playbackCapture == null || _playbackTimer == null)
+            return;
+        EnsureCachedMap();
+        _isPlaying = true;
+        PlayPauseButton.Content = "Pause";
+        _playbackTimer.Start();
+    }
+
+    private void PausePlayback()
+    {
+        _isPlaying = false;
+        PlayPauseButton.Content = "Play";
+        _playbackTimer?.Stop();
+    }
+
+    private void PlaybackTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_playbackCapture == null)
+            return;
+
+        var frame = new Mat();
+        if (!_playbackCapture.Read(frame) || frame.Empty())
+        {
+            frame.Dispose();
+            PausePlayback();
+            _playbackCapture.Set(VideoCaptureProperties.PosFrames, 0);
+            _suppressSeek = true;
+            PositionSlider.Value = 0;
+            _suppressSeek = false;
+            UpdateTimeText(0);
+            return;
+        }
+
+        _currentFrame?.Dispose();
+        _currentFrame = frame;
+        RenderPreviewFrame(_currentFrame);
+
+        int posFrames = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
+        _suppressSeek = true;
+        PositionSlider.Value = Math.Min(posFrames, PositionSlider.Maximum);
+        _suppressSeek = false;
+        UpdateTimeText(posFrames);
+    }
+
+    private void PositionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressSeek || _playbackCapture == null)
+            return;
+        PausePlayback();
+        SeekToFrame((int)e.NewValue);
+    }
+
+    private void SeekToFrame(int frameIndex)
+    {
+        if (_playbackCapture == null)
+            return;
+
+        _playbackCapture.Set(VideoCaptureProperties.PosFrames, frameIndex);
+        var frame = new Mat();
+        if (_playbackCapture.Read(frame) && !frame.Empty())
+        {
+            _currentFrame?.Dispose();
+            _currentFrame = frame;
+            RenderPreviewFrame(_currentFrame);
+            UpdateTimeText(frameIndex);
+        }
+        else
+        {
+            frame.Dispose();
+        }
+    }
+
+    private void UpdateTimeText(int posFrames)
+    {
+        double cur = posFrames / _playbackFps;
+        double total = _playbackTotalFrames / _playbackFps;
+        TimeText.Text = $"{FormatTime(cur)} / {FormatTime(total)}";
+    }
+
+    private static string FormatTime(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(Math.Max(seconds, 0));
+        return ts.Hours > 0 ? ts.ToString(@"h\:mm\:ss") : ts.ToString(@"m\:ss");
+    }
+
+    private void ReleaseVideoResources()
+    {
+        _playbackTimer?.Stop();
+        _playbackTimer = null;
+        _playbackCapture?.Dispose();
+        _playbackCapture = null;
+        _isPlaying = false;
+    }
+
+    // ------------------------------------------------------------ export --
 
     private async void ExportButton_Click(object sender, RoutedEventArgs e)
     {
@@ -181,6 +353,7 @@ public partial class MainWindow : System.Windows.Window
             if (dialog.ShowDialog() != true)
                 return;
 
+            PausePlayback();
             ExportButton.IsEnabled = false;
             OpenButton.IsEnabled = false;
             ExportProgress.Visibility = Visibility.Visible;
@@ -308,20 +481,45 @@ public partial class MainWindow : System.Windows.Window
         }
     }
 
-    private void UpdatePreview()
+    /// <summary>Rebuilds the cached remap from current calibration/mode controls.
+    /// Called whenever a parameter that affects the map changes; playback reuses the
+    /// cached map on every frame rather than rebuilding it (too slow to do per-frame).</summary>
+    private void RebuildMap()
     {
-        if (_previewFrame == null)
-            return;
-
+        _cachedMapX?.Dispose();
+        _cachedMapY?.Dispose();
         var calib = CurrentCalibration();
         var map = CurrentMap(calib);
-        var (mapX, mapY) = map.ToMats();
+        (_cachedMapX, _cachedMapY) = map.ToMats();
+    }
+
+    private void EnsureCachedMap()
+    {
+        if (_cachedMapX == null || _cachedMapY == null)
+            RebuildMap();
+    }
+
+    /// <summary>Called whenever any calibration/mode/flip/pan control changes.</summary>
+    private void OnParametersChanged()
+    {
+        if (_previewFrame == null && _currentFrame == null)
+            return;
+
+        RebuildMap();
+
+        // While playing, the next timer tick already picks up the rebuilt map;
+        // re-rendering the stale current frame here would just cause a flicker.
+        if (!_isPlaying)
+            RenderPreviewFrame(_currentFrame ?? _previewFrame);
+    }
+
+    private void RenderPreviewFrame(Mat? frame)
+    {
+        if (frame == null)
+            return;
+        EnsureCachedMap();
         var transform = CurrentTransform();
-        using (mapX)
-        using (mapY)
-        using (var flat = FlattenPipeline.Run(_previewFrame, mapX, mapY, transform))
-        {
-            PreviewImage.Source = flat.ToBitmapSource();
-        }
+        using var flat = FlattenPipeline.Run(frame, _cachedMapX!, _cachedMapY!, transform);
+        PreviewImage.Source = flat.ToBitmapSource();
     }
 }
