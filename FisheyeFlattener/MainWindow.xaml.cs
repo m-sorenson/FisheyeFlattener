@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 using FisheyeFlattener.Core;
 using Microsoft.Win32;
@@ -15,14 +16,26 @@ public partial class MainWindow : System.Windows.Window
     private static readonly string[] VideoExts = { ".mp4", ".mov", ".avi", ".mkv" };
     private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
 
+    private const double DefaultYawDeg = 0.0;
+    private const double DefaultPitchDeg = -60.0;
+
     private string? _sourcePath;
     private bool _isVideo;
     private Mat? _previewFrame; // frame 0, immutable reference used for calibration
     private Mat? _currentFrame; // whatever raw frame is currently displayed (playback/seek swap this)
     private CircleCalibration? _calib;
 
+    private double _yawDeg = DefaultYawDeg;
+    private double _pitchDeg = DefaultPitchDeg;
+
     private Mat? _cachedMapX;
     private Mat? _cachedMapY;
+
+    // Drag-to-look
+    private bool _isDragging;
+    private System.Windows.Point _dragStart;
+    private double _dragStartYaw;
+    private double _dragStartPitch;
 
     // Playback
     private VideoCapture? _playbackCapture;
@@ -107,13 +120,12 @@ public partial class MainWindow : System.Windows.Window
         ReleaseVideoResources();
         SetUpPlayback(isVideo, capture);
 
-        // fresh file -> fresh orientation/framing state
+        // fresh file -> fresh orientation/framing/view state
         SourceFlipHCheck.IsChecked = false;
         SourceFlipVCheck.IsChecked = false;
-        OutputFlipHCheck.IsChecked = false;
-        OutputFlipVCheck.IsChecked = false;
-        PanXSlider.Value = 0;
-        PanYSlider.Value = 0;
+        _yawDeg = DefaultYawDeg;
+        _pitchDeg = DefaultPitchDeg;
+        FovSlider.Value = 90;
 
         _calib = Calibration.DefaultCalibration(frame);
         SyncCalibrationControls();
@@ -149,47 +161,11 @@ public partial class MainWindow : System.Windows.Window
         _previewDebounce.Start();
     }
 
-    private void Param_Toggled(object sender, RoutedEventArgs e)
+    private void ResetViewButton_Click(object sender, RoutedEventArgs e)
     {
-        _previewDebounce.Stop();
-        _previewDebounce.Start();
-    }
-
-    private void ResetPanButton_Click(object sender, RoutedEventArgs e)
-    {
-        PanXSlider.Value = 0;
-        PanYSlider.Value = 0;
-    }
-
-    private void MountCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (!IsLoaded) return;
-        switch (MountCombo.SelectedIndex)
-        {
-            case 0: // Ceiling
-                ModeCombo.SelectedIndex = 1; // panorama
-                ThetaTopSlider.Value = 90;
-                ThetaBottomSlider.Value = 10;
-                ReferenceSlider.Value = 0;
-                break;
-            case 1: // Wall
-                ModeCombo.SelectedIndex = 1; // panorama
-                AzStartSlider.Value = -90;
-                AzEndSlider.Value = 90;
-                ThetaTopSlider.Value = 90;
-                ThetaBottomSlider.Value = 0;
-                ReferenceSlider.Value = -90;
-                break;
-        }
-        OnParametersChanged();
-    }
-
-    private void ModeCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (!IsLoaded) return;
-        bool perspective = ModeCombo.SelectedIndex == 0;
-        PerspectivePanel.Visibility = perspective ? Visibility.Visible : Visibility.Collapsed;
-        PanoramaPanel.Visibility = perspective ? Visibility.Collapsed : Visibility.Visible;
+        _yawDeg = DefaultYawDeg;
+        _pitchDeg = DefaultPitchDeg;
+        FovSlider.Value = 90;
         OnParametersChanged();
     }
 
@@ -198,6 +174,57 @@ public partial class MainWindow : System.Windows.Window
         _previewDebounce.Stop();
         _previewDebounce.Start();
     }
+
+    // ----------------------------------------------------------- drag/zoom --
+
+    private void PreviewImage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_currentFrame == null && _previewFrame == null)
+            return;
+        _isDragging = true;
+        _dragStart = e.GetPosition(PreviewImage);
+        _dragStartYaw = _yawDeg;
+        _dragStartPitch = _pitchDeg;
+        PreviewImage.CaptureMouse();
+    }
+
+    private void PreviewImage_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isDragging)
+            return;
+
+        var pos = e.GetPosition(PreviewImage);
+        double dx = pos.X - _dragStart.X;
+        double dy = pos.Y - _dragStart.Y;
+
+        double renderWidth = PreviewImage.ActualWidth > 0 ? PreviewImage.ActualWidth : 1;
+        double degPerPixel = FovSlider.Value / renderWidth;
+
+        // "grab and drag the image" feel: dragging right reveals what was to the left
+        // (yaw decreases), dragging down reveals what was above (pitch increases).
+        _yawDeg = Clamp(_dragStartYaw - dx * degPerPixel, -180, 180);
+        _pitchDeg = Clamp(_dragStartPitch + dy * degPerPixel, -90, 90);
+
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void PreviewImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _isDragging = false;
+        PreviewImage.ReleaseMouseCapture();
+    }
+
+    private void PreviewImage_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (_currentFrame == null && _previewFrame == null)
+            return;
+        double newFov = Clamp(FovSlider.Value - Math.Sign(e.Delta) * 5, FovSlider.Minimum, FovSlider.Maximum);
+        FovSlider.Value = newFov;
+        e.Handled = true;
+    }
+
+    private static double Clamp(double v, double min, double max) => Math.Max(min, Math.Min(max, v));
 
     // --------------------------------------------------------- playback --
 
@@ -445,45 +472,25 @@ public partial class MainWindow : System.Windows.Window
     {
         SourceFlipHorizontal = SourceFlipHCheck.IsChecked == true,
         SourceFlipVertical = SourceFlipVCheck.IsChecked == true,
-        OutputFlipHorizontal = OutputFlipHCheck.IsChecked == true,
-        OutputFlipVertical = OutputFlipVCheck.IsChecked == true,
-        PanX = PanXSlider.Value,
-        PanY = PanYSlider.Value,
     };
 
     private DewarpMap CurrentMap(CircleCalibration calib)
     {
-        if (ModeCombo.SelectedIndex == 0)
+        var p = new PerspectiveParams
         {
-            var p = new PerspectiveParams
-            {
-                YawDeg = YawSlider.Value,
-                PitchDeg = PitchSlider.Value,
-                FovDeg = FovSlider.Value,
-                OutWidth = (int)PerspWidthSlider.Value,
-                OutHeight = (int)PerspHeightSlider.Value,
-            };
-            return DewarpMath.BuildPerspectiveMap(calib, p);
-        }
-        else
-        {
-            var p = new PanoramaParams
-            {
-                AzimuthStartDeg = AzStartSlider.Value,
-                AzimuthEndDeg = AzEndSlider.Value,
-                ThetaTopDeg = ThetaTopSlider.Value,
-                ThetaBottomDeg = ThetaBottomSlider.Value,
-                ReferenceDeg = ReferenceSlider.Value,
-                OutWidth = (int)PanoWidthSlider.Value,
-                OutHeight = (int)PanoHeightSlider.Value,
-            };
-            return DewarpMath.BuildPanoramaMap(calib, p);
-        }
+            YawDeg = _yawDeg,
+            PitchDeg = _pitchDeg,
+            FovDeg = FovSlider.Value,
+            OutWidth = (int)PerspWidthSlider.Value,
+            OutHeight = (int)PerspHeightSlider.Value,
+        };
+        return DewarpMath.BuildPerspectiveMap(calib, p);
     }
 
-    /// <summary>Rebuilds the cached remap from current calibration/mode controls.
-    /// Called whenever a parameter that affects the map changes; playback reuses the
-    /// cached map on every frame rather than rebuilding it (too slow to do per-frame).</summary>
+    /// <summary>Rebuilds the cached remap from current calibration/view controls.
+    /// Called whenever a parameter that affects the map changes; playback and dragging
+    /// reuse the cached map via RenderPreviewFrame rather than rebuilding synchronously
+    /// on every mouse-move (rebuilding a per-pixel trig map at that rate is too slow).</summary>
     private void RebuildMap()
     {
         _cachedMapX?.Dispose();
@@ -499,7 +506,7 @@ public partial class MainWindow : System.Windows.Window
             RebuildMap();
     }
 
-    /// <summary>Called whenever any calibration/mode/flip/pan control changes.</summary>
+    /// <summary>Called (via debounce) whenever any calibration/view/flip control changes.</summary>
     private void OnParametersChanged()
     {
         if (_previewFrame == null && _currentFrame == null)

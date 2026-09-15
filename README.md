@@ -2,8 +2,8 @@
 
 Native Windows desktop app that turns a circular fisheye export from a
 Ubiquiti Protect Fisheye camera (G4/G5 Fisheye, etc.) into a normal-looking
-flat image or video — either a single "virtual PTZ" perspective view, or a
-360° panoramic unwrap.
+flat image or video, viewed and steered like a virtual PTZ camera — drag
+the preview to look around, scroll to zoom.
 
 Protect only lets you export fisheye clips/snapshots in the raw circular
 fisheye format; this app does the dewarping afterward, locally, on the
@@ -55,35 +55,31 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 3. The app auto-detects the circular lens image (bright circle against the
    black letterboxing Protect exports use). If it picks the wrong circle,
    adjust Center X/Y and Radius by hand, or hit "Auto-detect circle" again.
-4. Pick a **Mount type** — loads sensible defaults:
-   - **Ceiling** (looking down): Panorama unwrap covering the full 360°
-     around the room.
-   - **Wall** (looking out): Panorama unwrap covering roughly the 180°
-     hemisphere in front of the camera.
-5. Pick a **Flatten Mode**:
-   - **Perspective (single view)** — normal rectilinear "looking at one
-     spot" view. Yaw/Pitch aim it, FOV zooms. Pitch near ±90° points right
-     at the horizon, where the lens's captured hemisphere runs out —
-     expect part of the view to go black there; back off a bit (e.g. -60°).
-   - **Panorama (360 unwrap)** — the whole scene unrolled into one wide
-     strip.
-6. The preview updates live as you drag sliders (debounced ~60ms). Hit
-   **Export Flattened...** to write a full-resolution image, or process an
-   entire video (shows a progress bar; runs on a background thread so the
-   UI stays responsive).
-7. **Lens Calibration → Source correction**: flip the raw fisheye frame
+4. **Look around by dragging the preview** — click and drag to pan/tilt,
+   scroll to zoom in/out. This is a virtual PTZ camera: the flattened view
+   always looks like a normal photo, and dragging moves what you're looking
+   at, like panning a photo viewer. **Reset View** puts it back to the
+   default framing.
+5. The preview updates live as you drag or adjust sliders (debounced
+   ~60ms). Hit **Export Flattened...** to write the *current view* as a
+   full-resolution image, or process an entire video through that same
+   view (shows a progress bar; runs on a background thread so the UI stays
+   responsive).
+6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so
    calibration stays correct.
-8. **Output Adjustments**: flip and pan (nudge) the final flattened result
-   after dewarping — flip for a mirrored final view, Pan X/Y to shift the
-   framing without touching yaw/pitch/azimuth. "Reset pan" zeroes both.
-9. For video, a playback bar appears under the preview — **Play/Pause**,
+7. For video, a playback bar appears under the preview — **Play/Pause**,
    a scrub slider, and elapsed/total time. Playback shows the *flattened*
-   result live (not the raw fisheye), using whatever calibration/mode/flip
-   settings are currently set. Dragging the scrub bar pauses and seeks.
-   Adjusting a slider while playing updates the dewarp map for the next
-   frame without interrupting playback.
+   result live (not the raw fisheye), using whatever view you've dragged to
+   and whatever calibration is set. Dragging the scrub bar pauses and
+   seeks. Adjusting the view while playing updates the dewarp map for the
+   next frame without interrupting playback.
+
+Note: a 360° panorama-unwrap mode existed in an earlier version and is
+still in `FisheyeFlattener.Core` (`DewarpMath.BuildPanoramaMap`) but isn't
+wired into the UI anymore — the app is single-view/PTZ-only now, since
+that's what maps to "drag to look around."
 
 ## How it works
 
