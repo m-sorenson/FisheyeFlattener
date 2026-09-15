@@ -17,6 +17,10 @@ public class PerspectiveParams
 {
     public double YawDeg { get; set; }
     public double PitchDeg { get; set; }
+    /// <summary>Rotation around the view's own forward axis, applied before yaw/pitch.
+    /// Corrects for a camera mount that isn't perfectly level; unlike yaw/pitch, this
+    /// stays fixed regardless of where you pan/tilt afterward.</summary>
+    public double RollDeg { get; set; }
     public double FovDeg { get; set; } = 90.0;
     public int OutWidth { get; set; } = 1280;
     public int OutHeight { get; set; } = 720;
@@ -70,8 +74,10 @@ public static class DewarpMath
 
         double pitch = Deg2Rad(p.PitchDeg);
         double yaw = Deg2Rad(p.YawDeg);
+        double roll = Deg2Rad(p.RollDeg);
         double cp = Math.Cos(pitch), sp = Math.Sin(pitch);
         double cy = Math.Cos(yaw), sy = Math.Sin(yaw);
+        double cr = Math.Cos(roll), sr = Math.Sin(roll);
 
         // Parallelized over rows (each row writes disjoint array slices, so this is
         // safe): rebuilding this per-pixel trig map has to happen on every drag/zoom
@@ -84,13 +90,18 @@ public static class DewarpMath
                 double x = (u - w / 2.0) / focalOut;
                 const double z = 1.0;
 
+                // roll: rotate the ray around the forward axis first, so it's
+                // unaffected by (and unaffects) subsequent yaw/pitch panning
+                double xr = x * cr - y * sr;
+                double yr = x * sr + y * cr;
+
                 // pitch: rotate around x-axis
-                double y1 = y * cp - z * sp;
-                double z1 = y * sp + z * cp;
+                double y1 = yr * cp - z * sp;
+                double z1 = yr * sp + z * cp;
 
                 // yaw: rotate around y-axis
-                double x2 = x * cy + z1 * sy;
-                double z2 = -x * sy + z1 * cy;
+                double x2 = xr * cy + z1 * sy;
+                double z2 = -xr * sy + z1 * cy;
                 double y2 = y1;
 
                 double theta = Math.Atan2(Math.Sqrt(x2 * x2 + y2 * y2), z2);

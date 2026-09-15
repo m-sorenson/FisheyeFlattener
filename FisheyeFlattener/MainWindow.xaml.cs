@@ -37,6 +37,10 @@ public partial class MainWindow : System.Windows.Window
     private double _dragStartYaw;
     private double _dragStartPitch;
 
+    // Snap-level (click two points along an edge that should be horizontal)
+    private bool _isSettingLevel;
+    private System.Windows.Point? _levelPoint1;
+
     // Playback
     private VideoCapture? _playbackCapture;
     private DispatcherTimer? _playbackTimer;
@@ -126,6 +130,9 @@ public partial class MainWindow : System.Windows.Window
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
         FovSlider.Value = 90;
+        RollSlider.Value = 0;
+        _isSettingLevel = false;
+        _levelPoint1 = null;
 
         _calib = Calibration.DefaultCalibration(frame);
         SyncCalibrationControls();
@@ -166,7 +173,19 @@ public partial class MainWindow : System.Windows.Window
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
         FovSlider.Value = 90;
+        RollSlider.Value = 0;
+        _isSettingLevel = false;
+        _levelPoint1 = null;
         OnParametersChanged();
+    }
+
+    private void SnapLevelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentFrame == null && _previewFrame == null)
+            return;
+        _isSettingLevel = true;
+        _levelPoint1 = null;
+        StatusText.Text = "Click two points along an edge that should be level (e.g. a doorframe or wall edge)...";
     }
 
     private void Param_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -181,11 +200,46 @@ public partial class MainWindow : System.Windows.Window
     {
         if (_currentFrame == null && _previewFrame == null)
             return;
+
+        if (_isSettingLevel)
+        {
+            HandleLevelClick(e.GetPosition(PreviewImage));
+            return;
+        }
+
         _isDragging = true;
         _dragStart = e.GetPosition(PreviewImage);
         _dragStartYaw = _yawDeg;
         _dragStartPitch = _pitchDeg;
         PreviewImage.CaptureMouse();
+    }
+
+    /// <summary>Two clicks define a line that should be horizontal; rotates Roll so it
+    /// is. Because panning has no roll drift (verified in DewarpMathTests), a single
+    /// level correction holds no matter where you pan/tilt afterward.</summary>
+    private void HandleLevelClick(System.Windows.Point pos)
+    {
+        if (_levelPoint1 == null)
+        {
+            _levelPoint1 = pos;
+            StatusText.Text = "Click the second point along that same edge...";
+            return;
+        }
+
+        var p1 = _levelPoint1.Value;
+        double dx = pos.X - p1.X;
+        double dy = pos.Y - p1.Y;
+
+        if (dx != 0 || dy != 0)
+        {
+            double tiltDeg = Math.Atan2(dy, dx) * 180.0 / Math.PI;
+            RollSlider.Value = Clamp(NormalizeAngleDeg(RollSlider.Value + tiltDeg), RollSlider.Minimum, RollSlider.Maximum);
+        }
+
+        _isSettingLevel = false;
+        _levelPoint1 = null;
+        StatusText.Text = "Level set.";
+        OnParametersChanged();
     }
 
     private void PreviewImage_MouseMove(object sender, MouseEventArgs e)
@@ -495,6 +549,7 @@ public partial class MainWindow : System.Windows.Window
         {
             YawDeg = _yawDeg,
             PitchDeg = _pitchDeg,
+            RollDeg = RollSlider.Value,
             FovDeg = FovSlider.Value,
             OutWidth = (int)PerspWidthSlider.Value,
             OutHeight = (int)PerspHeightSlider.Value,

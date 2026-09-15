@@ -15,6 +15,28 @@ public class DewarpMathTests
     };
 
     [Fact]
+    public void RollRotatesViewCounterClockwiseAroundCenter()
+    {
+        var calib = MakeCalib();
+        var pBase = new PerspectiveParams { RollDeg = 0, FovDeg = 90, OutWidth = 100, OutHeight = 100 };
+        var pRolled = new PerspectiveParams { RollDeg = 90, FovDeg = 90, OutWidth = 100, OutHeight = 100 };
+
+        var mapBase = DewarpMath.BuildPerspectiveMap(calib, pBase);
+        var mapRolled = DewarpMath.BuildPerspectiveMap(calib, pRolled);
+
+        // Content that appears left-of-center with no roll should, after a +90 deg
+        // roll, appear below-center instead (a +90 deg roll rotates the view CCW,
+        // which is what "level" corrections rely on: atan2(dy,dx) + angle -> level).
+        float leftX = mapBase.MapX[50, 20];
+        float leftY = mapBase.MapY[50, 20];
+        float belowX = mapRolled.MapX[80, 50];
+        float belowY = mapRolled.MapY[80, 50];
+
+        Assert.Equal(leftX, belowX, 1);
+        Assert.Equal(leftY, belowY, 1);
+    }
+
+    [Fact]
     public void PerspectiveCenterRayHitsOpticalCenter()
     {
         var calib = MakeCalib();

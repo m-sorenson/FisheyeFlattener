@@ -69,6 +69,13 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so
    calibration stays correct.
+6b. **View → Snap Level**: if a wall/doorframe/edge that should be
+   horizontal looks tilted (the camera mount itself is slightly rotated),
+   click **Snap Level**, then click two points along that edge. The app
+   rotates the view (Roll) so that edge is level — and because panning has
+   no roll drift (dragging/yaw/pitch never rotate the horizon), that
+   correction holds no matter where you look afterward. There's also a
+   manual Roll slider if you'd rather dial it in by eye.
 7. For video, a playback bar appears under the preview — **Play/Pause**,
    a scrub slider, and elapsed/total time. Playback shows the *flattened*
    result live (not the raw fisheye), using whatever view you've dragged to
