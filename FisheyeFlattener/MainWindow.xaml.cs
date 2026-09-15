@@ -27,7 +27,7 @@ public partial class MainWindow : System.Windows.Window
 
     private double _yawDeg = DefaultYawDeg;
     private double _pitchDeg = DefaultPitchDeg;
-    private double _northOffsetDeg;
+    private const double KeyStepDeg = 5.0;
 
     private Mat? _cachedMapX;
     private Mat? _cachedMapY;
@@ -130,7 +130,6 @@ public partial class MainWindow : System.Windows.Window
         SourceFlipVCheck.IsChecked = false;
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        _northOffsetDeg = 0;
         FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
@@ -174,7 +173,6 @@ public partial class MainWindow : System.Windows.Window
     {
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        _northOffsetDeg = 0;
         FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
@@ -182,27 +180,33 @@ public partial class MainWindow : System.Windows.Window
         OnParametersChanged();
     }
 
-    // ------------------------------------------------------------ compass --
-
-    private void SetNorthButton_Click(object sender, RoutedEventArgs e)
-    {
-        _northOffsetDeg = _yawDeg;
-        StatusText.Text = "Current view set as North.";
-    }
-
-    private void GoNorthButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(0);
-    private void GoEastButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(90);
-    private void GoSouthButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(180);
-    private void GoWestButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(270);
-
-    /// <summary>Jumps yaw to a fixed compass direction relative to the North offset,
-    /// leaving pitch/roll/zoom untouched - deliberately isolated from the Roll/Level
-    /// correction since yaw and roll are independent rotations in the dewarp math.</summary>
-    private void SnapToCompass(double directionDeg)
+    /// <summary>Arrow-key nudge: Up/Down tilt, Left/Right pan, one KeyStepDeg per
+    /// press (holding the key repeats it). Only touches yaw/pitch - roll/zoom are
+    /// untouched, same as dragging.</summary>
+    private void PreviewImage_KeyDown(object sender, KeyEventArgs e)
     {
         if (_currentFrame == null && _previewFrame == null)
             return;
-        _yawDeg = NormalizeAngleDeg(_northOffsetDeg + directionDeg);
+
+        switch (e.Key)
+        {
+            case Key.Up:
+                _pitchDeg = Clamp(_pitchDeg + KeyStepDeg, -90, 90);
+                break;
+            case Key.Down:
+                _pitchDeg = Clamp(_pitchDeg - KeyStepDeg, -90, 90);
+                break;
+            case Key.Left:
+                _yawDeg = NormalizeAngleDeg(_yawDeg - KeyStepDeg);
+                break;
+            case Key.Right:
+                _yawDeg = NormalizeAngleDeg(_yawDeg + KeyStepDeg);
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
         OnParametersChanged();
     }
 
@@ -227,6 +231,8 @@ public partial class MainWindow : System.Windows.Window
     {
         if (_currentFrame == null && _previewFrame == null)
             return;
+
+        PreviewImage.Focus();
 
         if (_isSettingLevel)
         {
