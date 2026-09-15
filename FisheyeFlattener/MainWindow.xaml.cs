@@ -27,6 +27,7 @@ public partial class MainWindow : System.Windows.Window
 
     private double _yawDeg = DefaultYawDeg;
     private double _pitchDeg = DefaultPitchDeg;
+    private double _northOffsetDeg;
 
     private Mat? _cachedMapX;
     private Mat? _cachedMapY;
@@ -129,6 +130,7 @@ public partial class MainWindow : System.Windows.Window
         SourceFlipVCheck.IsChecked = false;
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
+        _northOffsetDeg = 0;
         FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
@@ -172,10 +174,35 @@ public partial class MainWindow : System.Windows.Window
     {
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
+        _northOffsetDeg = 0;
         FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
         _levelPoint1 = null;
+        OnParametersChanged();
+    }
+
+    // ------------------------------------------------------------ compass --
+
+    private void SetNorthButton_Click(object sender, RoutedEventArgs e)
+    {
+        _northOffsetDeg = _yawDeg;
+        StatusText.Text = "Current view set as North.";
+    }
+
+    private void GoNorthButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(0);
+    private void GoEastButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(90);
+    private void GoSouthButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(180);
+    private void GoWestButton_Click(object sender, RoutedEventArgs e) => SnapToCompass(270);
+
+    /// <summary>Jumps yaw to a fixed compass direction relative to the North offset,
+    /// leaving pitch/roll/zoom untouched - deliberately isolated from the Roll/Level
+    /// correction since yaw and roll are independent rotations in the dewarp math.</summary>
+    private void SnapToCompass(double directionDeg)
+    {
+        if (_currentFrame == null && _previewFrame == null)
+            return;
+        _yawDeg = NormalizeAngleDeg(_northOffsetDeg + directionDeg);
         OnParametersChanged();
     }
 

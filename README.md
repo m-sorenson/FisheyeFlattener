@@ -76,6 +76,13 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    no roll drift (dragging/yaw/pitch never rotate the horizon), that
    correction holds no matter where you look afterward. There's also a
    manual Roll slider if you'd rather dial it in by eye.
+6c. **Compass**: quick-jump buttons to fixed directions, isolated from
+   Roll/Level — pressing North/East/South/West only changes yaw (pan);
+   pitch, roll, and zoom stay exactly as they were. "North" isn't true
+   compass north (the fisheye has no idea which way is north); it's
+   whatever direction you were facing when you last clicked **Set North
+   Here** (defaults to the view's starting direction). Handy for quickly
+   checking all four walls of a room without re-dragging each time.
 7. For video, a playback bar appears under the preview — **Play/Pause**,
    a scrub slider, and elapsed/total time. Playback shows the *flattened*
    result live (not the raw fisheye), using whatever view you've dragged to

@@ -104,6 +104,21 @@
                                 Padding="6,4" HorizontalAlignment="Left" Click="SnapLevelButton_Click"/>
                     </StackPanel>
                 </GroupBox>
+
+                <GroupBox Header="Compass" Padding="8" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Jump straight to a fixed direction, independent of Roll/Level. &quot;North&quot; is just whatever you set it to."
+                                   Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.8"/>
+                        <Button x:Name="SetNorthButton" Content="Set North Here" Padding="6,4"
+                                HorizontalAlignment="Left" Click="SetNorthButton_Click"/>
+                        <UniformGrid Columns="2" Rows="2" Margin="0,8,0,0">
+                            <Button x:Name="GoNorthButton" Content="North" Margin="2" Padding="6,6" Click="GoNorthButton_Click"/>
+                            <Button x:Name="GoEastButton" Content="East" Margin="2" Padding="6,6" Click="GoEastButton_Click"/>
+                            <Button x:Name="GoWestButton" Content="West" Margin="2" Padding="6,6" Click="GoWestButton_Click"/>
+                            <Button x:Name="GoSouthButton" Content="South" Margin="2" Padding="6,6" Click="GoSouthButton_Click"/>
+                        </UniformGrid>
+                    </StackPanel>
+                </GroupBox>
             </StackPanel>
         </ScrollViewer>
     </Grid>
