@@ -29,6 +29,9 @@ display-forwarding involved. Same dewarp math, ported to C#.
 
 - Windows 10/11
 - .NET 8 SDK (installed on this machine via `winget install Microsoft.DotNet.SDK.8`)
+- ffmpeg, optional (installed on this machine via `winget install Gyan.FFmpeg`) —
+  only needed for audio in exported video; without it, video export still
+  works, just silent
 
 ## Build & run
 
@@ -73,7 +76,12 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    ~60ms). Hit **Export Flattened...** to write the *current view* as a
    full-resolution image, or process an entire video through that same
    view (shows a progress bar; runs on a background thread so the UI stays
-   responsive).
+   responsive). Video export includes the original audio track — OpenCV's
+   video writer has no audio support at all, so this app writes the
+   flattened frames video-only, then shells out to **ffmpeg** (if
+   installed) as a second step to copy the original audio onto the result.
+   No ffmpeg, or no audio track in the source → you still get a valid
+   video, just without audio; the status bar says which happened.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so

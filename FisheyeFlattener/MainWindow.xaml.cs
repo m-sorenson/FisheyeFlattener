@@ -495,12 +495,13 @@ public partial class MainWindow : System.Windows.Window
 
             string inPath = _sourcePath;
             string outPath = dialog.FileName;
+            string tempVideoOnlyPath = Path.Combine(Path.GetTempPath(), $"ff_{Guid.NewGuid():N}.mp4");
 
             try
             {
-                await Task.Run(() =>
+                bool includedAudio = await Task.Run(() =>
                 {
-                    VideoProcessor.ProcessVideo(inPath, outPath, mapX, mapY, transform, (done, total) =>
+                    VideoProcessor.ProcessVideo(inPath, tempVideoOnlyPath, mapX, mapY, transform, (done, total) =>
                     {
                         Dispatcher.Invoke(() =>
                         {
@@ -509,8 +510,11 @@ public partial class MainWindow : System.Windows.Window
                             StatusText.Text = $"Exporting video... frame {done}/{(total > 0 ? total.ToString() : "?")}";
                         });
                     });
+
+                    Dispatcher.Invoke(() => StatusText.Text = "Merging audio...");
+                    return AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath);
                 });
-                StatusText.Text = "Video export complete.";
+                StatusText.Text = includedAudio ? "Video export complete." : "Video export complete (no audio track found/muxed).";
             }
             catch (Exception ex)
             {
