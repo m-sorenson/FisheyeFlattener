@@ -71,6 +71,13 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    **Export Flattened...** to write a full-resolution image, or process an
    entire video (shows a progress bar; runs on a background thread so the
    UI stays responsive).
+7. **Lens Calibration → Source correction**: flip the raw fisheye frame
+   before dewarping. Use this if the camera itself is mounted upside-down
+   or mirrored — toggling these automatically re-mirrors your Center X/Y so
+   calibration stays correct.
+8. **Output Adjustments**: flip and pan (nudge) the final flattened result
+   after dewarping — flip for a mirrored final view, Pan X/Y to shift the
+   framing without touching yaw/pitch/azimuth. "Reset pan" zeroes both.
 
 ## How it works
 

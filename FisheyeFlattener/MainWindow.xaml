@@ -61,6 +61,13 @@
 
                         <Button x:Name="AutoDetectButton" Content="Auto-detect circle" Margin="0,6,0,0"
                                 Padding="6,4" HorizontalAlignment="Left" Click="AutoDetectButton_Click"/>
+
+                        <TextBlock Text="Source correction (if the camera is mounted flipped/mirrored):"
+                                   Margin="0,10,0,4" TextWrapping="Wrap" Opacity="0.8"/>
+                        <CheckBox x:Name="SourceFlipHCheck" Content="Flip source horizontally" Margin="0,2"
+                                  Checked="SourceFlipH_Changed" Unchecked="SourceFlipH_Changed"/>
+                        <CheckBox x:Name="SourceFlipVCheck" Content="Flip source vertically" Margin="0,2"
+                                  Checked="SourceFlipV_Changed" Unchecked="SourceFlipV_Changed"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -101,6 +108,21 @@
                             <controls:NumericSlider x:Name="PanoHeightSlider" Label="Output height"
                                                      Minimum="120" Maximum="3000" Value="512" ValueChanged="Param_ValueChanged"/>
                         </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Output Adjustments" Padding="8" Margin="0,10,0,0">
+                    <StackPanel>
+                        <CheckBox x:Name="OutputFlipHCheck" Content="Flip output horizontally" Margin="0,2"
+                                  Checked="Param_Toggled" Unchecked="Param_Toggled"/>
+                        <CheckBox x:Name="OutputFlipVCheck" Content="Flip output vertically" Margin="0,2"
+                                  Checked="Param_Toggled" Unchecked="Param_Toggled"/>
+                        <controls:NumericSlider x:Name="PanXSlider" Label="Pan X (px)"
+                                                 Minimum="-2000" Maximum="2000" Value="0" ValueChanged="Param_ValueChanged"/>
+                        <controls:NumericSlider x:Name="PanYSlider" Label="Pan Y (px)"
+                                                 Minimum="-2000" Maximum="2000" Value="0" ValueChanged="Param_ValueChanged"/>
+                        <Button x:Name="ResetPanButton" Content="Reset pan" Margin="0,6,0,0"
+                                Padding="6,4" HorizontalAlignment="Left" Click="ResetPanButton_Click"/>
                     </StackPanel>
                 </GroupBox>
             </StackPanel>

@@ -1,8 +1,8 @@
 bin/
 obj/
 *.user
-ff_out.log
-ff_err.log
+ff_out*.log
+ff_err*.log
 *.mp4
 *.mov
 *.avi

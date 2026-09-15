@@ -29,9 +29,12 @@ public static class VideoProcessor
         string outPath,
         Mat mapX,
         Mat mapY,
+        TransformOptions? transform = null,
         Action<int, int>? progressCb = null,
         Func<bool>? cancelCb = null)
     {
+        transform ??= TransformOptions.None;
+
         using var cap = new VideoCapture(inPath);
         if (!cap.IsOpened())
             throw new FileNotFoundException($"Could not open video: {inPath}");
@@ -47,7 +50,6 @@ public static class VideoProcessor
 
         int frameIdx = 0;
         using var frame = new Mat();
-        using var flat = new Mat();
         while (true)
         {
             if (cancelCb?.Invoke() == true)
@@ -55,7 +57,7 @@ public static class VideoProcessor
             if (!cap.Read(frame) || frame.Empty())
                 break;
 
-            Cv2.Remap(frame, flat, mapX, mapY, InterpolationFlags.Linear, BorderTypes.Constant, Scalar.Black);
+            using var flat = FlattenPipeline.Run(frame, mapX, mapY, transform);
             writer.Write(flat);
             frameIdx++;
             progressCb?.Invoke(frameIdx, total);

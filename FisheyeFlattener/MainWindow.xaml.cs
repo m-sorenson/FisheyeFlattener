@@ -72,6 +72,15 @@ public partial class MainWindow : System.Windows.Window
         _isVideo = isVideo;
         _previewFrame?.Dispose();
         _previewFrame = frame;
+
+        // fresh file -> fresh orientation/framing state
+        SourceFlipHCheck.IsChecked = false;
+        SourceFlipVCheck.IsChecked = false;
+        OutputFlipHCheck.IsChecked = false;
+        OutputFlipVCheck.IsChecked = false;
+        PanXSlider.Value = 0;
+        PanYSlider.Value = 0;
+
         _calib = Calibration.DefaultCalibration(frame);
         SyncCalibrationControls();
 
@@ -84,9 +93,38 @@ public partial class MainWindow : System.Windows.Window
     {
         if (_previewFrame == null)
             return;
-        _calib = Calibration.DefaultCalibration(_previewFrame);
+        using var working = Transform.FlipClone(_previewFrame, SourceFlipHCheck.IsChecked == true, SourceFlipVCheck.IsChecked == true);
+        _calib = Calibration.DefaultCalibration(working);
         SyncCalibrationControls();
         UpdatePreview();
+    }
+
+    private void SourceFlipH_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_previewFrame != null)
+            CenterXSlider.Value = Transform.MirrorX(CenterXSlider.Value, _previewFrame.Cols);
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void SourceFlipV_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_previewFrame != null)
+            CenterYSlider.Value = Transform.MirrorY(CenterYSlider.Value, _previewFrame.Rows);
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void Param_Toggled(object sender, RoutedEventArgs e)
+    {
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private void ResetPanButton_Click(object sender, RoutedEventArgs e)
+    {
+        PanXSlider.Value = 0;
+        PanYSlider.Value = 0;
     }
 
     private void MountCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -135,6 +173,7 @@ public partial class MainWindow : System.Windows.Window
         var calib = CurrentCalibration();
         var map = CurrentMap(calib);
         var (mapX, mapY) = map.ToMats();
+        var transform = CurrentTransform();
 
         if (_isVideo)
         {
@@ -155,7 +194,7 @@ public partial class MainWindow : System.Windows.Window
             {
                 await Task.Run(() =>
                 {
-                    VideoProcessor.ProcessVideo(inPath, outPath, mapX, mapY, (done, total) =>
+                    VideoProcessor.ProcessVideo(inPath, outPath, mapX, mapY, transform, (done, total) =>
                     {
                         Dispatcher.Invoke(() =>
                         {
@@ -194,7 +233,7 @@ public partial class MainWindow : System.Windows.Window
             try
             {
                 using var fullRes = ImageProcessor.Load(_sourcePath);
-                using var flat = ImageProcessor.ApplyMap(fullRes, mapX, mapY);
+                using var flat = FlattenPipeline.Run(fullRes, mapX, mapY, transform);
                 ImageProcessor.Save(dialog.FileName, flat);
                 StatusText.Text = $"Saved: {dialog.FileName}";
             }
@@ -227,6 +266,16 @@ public partial class MainWindow : System.Windows.Window
         CenterY = CenterYSlider.Value,
         Radius = RadiusSlider.Value,
         MaxFovDeg = MaxFovSlider.Value,
+    };
+
+    private TransformOptions CurrentTransform() => new()
+    {
+        SourceFlipHorizontal = SourceFlipHCheck.IsChecked == true,
+        SourceFlipVertical = SourceFlipVCheck.IsChecked == true,
+        OutputFlipHorizontal = OutputFlipHCheck.IsChecked == true,
+        OutputFlipVertical = OutputFlipVCheck.IsChecked == true,
+        PanX = PanXSlider.Value,
+        PanY = PanYSlider.Value,
     };
 
     private DewarpMap CurrentMap(CircleCalibration calib)
@@ -267,9 +316,10 @@ public partial class MainWindow : System.Windows.Window
         var calib = CurrentCalibration();
         var map = CurrentMap(calib);
         var (mapX, mapY) = map.ToMats();
+        var transform = CurrentTransform();
         using (mapX)
         using (mapY)
-        using (var flat = ImageProcessor.ApplyMap(_previewFrame, mapX, mapY))
+        using (var flat = FlattenPipeline.Run(_previewFrame, mapX, mapY, transform))
         {
             PreviewImage.Source = flat.ToBitmapSource();
         }
