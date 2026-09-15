@@ -12,14 +12,18 @@ public class CircleCalibration
     public double MaxFovDeg { get; set; } = 180.0;
 }
 
-/// <summary>A single virtual PTZ view: look at (yaw, pitch) with a given FOV.</summary>
+/// <summary>A single virtual PTZ view: look at (yaw, pitch) with a given FOV.
+/// YawDeg is azimuth around the lens's optical axis (0-360). PitchDeg is the angle
+/// from the optical axis/nadir (0 = straight down at the lens center, ~90 = at the
+/// horizon) - i.e. it's the same "theta" the rest of this file uses, not a tilt
+/// offset from some other reference.</summary>
 public class PerspectiveParams
 {
     public double YawDeg { get; set; }
     public double PitchDeg { get; set; }
-    /// <summary>Rotation around the view's own forward axis, applied before yaw/pitch.
-    /// Corrects for a camera mount that isn't perfectly level; unlike yaw/pitch, this
-    /// stays fixed regardless of where you pan/tilt afterward.</summary>
+    /// <summary>Rotation around the view's own forward axis. Corrects for a camera
+    /// mount that isn't perfectly level; unlike yaw/pitch, this stays fixed
+    /// regardless of where you pan/tilt afterward.</summary>
     public double RollDeg { get; set; }
     public double FovDeg { get; set; } = 90.0;
     public int OutWidth { get; set; } = 1280;
@@ -71,49 +75,59 @@ public static class DewarpMath
         double focalOut = (w / 2.0) / Math.Tan(Deg2Rad(p.FovDeg) / 2.0);
         double maxTheta = Deg2Rad(calib.MaxFovDeg / 2.0);
         double radiusScale = calib.Radius / maxTheta;
-
-        double pitch = Deg2Rad(p.PitchDeg);
-        double yaw = Deg2Rad(p.YawDeg);
         double roll = Deg2Rad(p.RollDeg);
-        double cp = Math.Cos(pitch), sp = Math.Sin(pitch);
-        double cy = Math.Cos(yaw), sy = Math.Sin(yaw);
         double cr = Math.Cos(roll), sr = Math.Sin(roll);
+
+        // Build a local tangent-plane (gnomonic) basis at the view center instead of
+        // composing independent pitch-then-yaw rotations. Composed Euler rotations do
+        // NOT stay roll-free for a nadir-referenced (ceiling fisheye) camera as you
+        // pan: a real vertical line held at fixed azimuth would land at wildly
+        // different output columns as yaw changed (verified numerically - a ~30 deg
+        // sweep along one such line drifted 300+ px sideways), which is exactly the
+        // "image rotates while panning" bug. This tangent-basis construction is the
+        // standard way to build a roll-free rectilinear "look around" view on a
+        // sphere (same idea used by panorama viewers), and keeps a level camera level
+        // at any yaw/pitch by construction.
+        double phi0 = Deg2Rad(p.YawDeg);
+        double theta0 = Deg2Rad(p.PitchDeg);
+        double sinT0 = Math.Sin(theta0), cosT0 = Math.Cos(theta0);
+        double sinP0 = Math.Sin(phi0), cosP0 = Math.Cos(phi0);
+
+        // Forward = the view center's direction in fisheye space.
+        double fx = sinT0 * cosP0, fy = sinT0 * sinP0, fz = cosT0;
+        // Right = d(Forward)/d(phi), already unit length.
+        double rx = -sinP0, ry = cosP0;
+        // Up = -d(Forward)/d(theta), i.e. points back toward the pole (nadir).
+        double ux = -cosT0 * cosP0, uy = -cosT0 * sinP0, uz = sinT0;
 
         // Parallelized over rows (each row writes disjoint array slices, so this is
         // safe): rebuilding this per-pixel trig map has to happen on every drag/zoom
         // update, and a single-threaded loop is too slow to feel interactive.
         System.Threading.Tasks.Parallel.For(0, h, v =>
         {
-            double y = (v - h / 2.0) / focalOut;
+            double yo = (v - h / 2.0) / focalOut;
             for (int u = 0; u < w; u++)
             {
-                double x = (u - w / 2.0) / focalOut;
-                const double z = 1.0;
+                double xo = (u - w / 2.0) / focalOut;
 
-                // roll: rotate the ray around the forward axis first, so it's
-                // unaffected by (and unaffects) subsequent yaw/pitch panning
-                double xr = x * cr - y * sr;
-                double yr = x * sr + y * cr;
+                // roll: rotate the pixel offset before projecting onto the basis
+                double xr = xo * cr - yo * sr;
+                double yr = xo * sr + yo * cr;
 
-                // pitch: rotate around x-axis
-                double y1 = yr * cp - z * sp;
-                double z1 = yr * sp + z * cp;
+                double wx = fx + xr * rx + yr * ux;
+                double wy = fy + xr * ry + yr * uy;
+                double wz = fz + yr * uz;
 
-                // yaw: rotate around y-axis
-                double x2 = xr * cy + z1 * sy;
-                double z2 = -xr * sy + z1 * cy;
-                double y2 = y1;
+                double theta = Math.Atan2(Math.Sqrt(wx * wx + wy * wy), wz);
 
-                double theta = Math.Atan2(Math.Sqrt(x2 * x2 + y2 * y2), z2);
-
-                if (z2 <= 0 || theta > maxTheta)
+                if (theta > maxTheta)
                 {
                     mapX[v, u] = -1f;
                     mapY[v, u] = -1f;
                     continue;
                 }
 
-                double phi = Math.Atan2(y2, x2);
+                double phi = Math.Atan2(wy, wx);
                 double r = radiusScale * theta;
                 mapX[v, u] = (float)(calib.CenterX + r * Math.Cos(phi));
                 mapY[v, u] = (float)(calib.CenterY + r * Math.Sin(phi));

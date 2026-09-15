@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using FisheyeFlattener.Core;
 using Xunit;
 
@@ -48,6 +49,54 @@ public class DewarpMathTests
         double cy = map.MapY[50, 50];
         Assert.True(Math.Abs(cx - calib.CenterX) < 1e-3);
         Assert.True(Math.Abs(cy - calib.CenterY) < 1e-3);
+    }
+
+    [Theory]
+    [InlineData(60, 75)]
+    [InlineData(0, 75)]
+    [InlineData(60, 40)]
+    [InlineData(-45, 60)]
+    public void PerspectivePanHasNoRollDriftForRealVerticalLine(double yawDeg, double pitchDeg)
+    {
+        // Regression test: a naive pitch-then-yaw Euler composition (the original
+        // implementation) is NOT roll-free for a nadir-referenced (ceiling fisheye)
+        // camera - a real-world vertical line (fixed azimuth, varying elevation) would
+        // land at wildly different output columns as yaw changed, which is exactly
+        // what showed up as "the image rotates while panning". This checks the
+        // tangent-plane (gnomonic) construction that replaced it: the same vertical
+        // line, traced across a 30deg elevation range, should land at a constant
+        // output column for any yaw/pitch.
+        var calib = MakeCalib();
+        int w = 800;
+        double fovDeg = 60;
+        double focalOut = (w / 2.0) / Math.Tan(fovDeg * Math.PI / 360.0);
+
+        double phi0 = yawDeg * Math.PI / 180.0;
+        double theta0 = pitchDeg * Math.PI / 180.0;
+        double sinT0 = Math.Sin(theta0), cosT0 = Math.Cos(theta0);
+        double sinP0 = Math.Sin(phi0), cosP0 = Math.Cos(phi0);
+        double fx = sinT0 * cosP0, fy = sinT0 * sinP0, fz = cosT0;
+        double rx = -sinP0, ry = cosP0;
+        double ux = -cosT0 * cosP0, uy = -cosT0 * sinP0, uz = sinT0;
+
+        var us = new System.Collections.Generic.List<double>();
+        foreach (double thetaDeg in new[] { pitchDeg - 15, pitchDeg - 5, pitchDeg, pitchDeg + 5, pitchDeg + 15 })
+        {
+            double theta = thetaDeg * Math.PI / 180.0;
+            double X = Math.Sin(theta) * Math.Cos(phi0);
+            double Y = Math.Sin(theta) * Math.Sin(phi0);
+            double Z = Math.Cos(theta);
+
+            double wDotF = X * fx + Y * fy + Z * fz;
+            if (wDotF <= 0)
+                continue;
+            double scale = 1.0 / wDotF;
+            double xo = scale * (X * rx + Y * ry);
+            double u = w / 2.0 + focalOut * xo;
+            us.Add(u);
+        }
+
+        Assert.True(us.Max() - us.Min() < 0.5, $"U spread was {us.Max() - us.Min()}px, expected ~0");
     }
 
     [Fact]

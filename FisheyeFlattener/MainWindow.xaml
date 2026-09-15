@@ -92,7 +92,7 @@
                         <TextBlock Text="Drag the preview to look around. Scroll to zoom."
                                    Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.8"/>
                         <controls:NumericSlider x:Name="FovSlider" Label="Zoom (field of view, deg)"
-                                                 Minimum="30" Maximum="100" Value="60" ValueChanged="Param_ValueChanged"/>
+                                                 Minimum="30" Maximum="140" Value="90" ValueChanged="Param_ValueChanged"/>
                         <controls:NumericSlider x:Name="PerspWidthSlider" Label="Output width"
                                                  Minimum="160" Maximum="3840" Value="1280" ValueChanged="Param_ValueChanged"/>
                         <controls:NumericSlider x:Name="PerspHeightSlider" Label="Output height"

@@ -62,14 +62,13 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    default framing. Arrow keys work too (click the preview first to focus
    it).
 
-   This is a *rectilinear* (flat-photo) projection, which has an inherent
-   property: content leans/tilts more the farther it sits from the center
-   of frame, and that lean visibly changes as you pan past it (it can look
-   like "rotation" even though only yaw is changing — that's not a bug, all
-   flat-photo-style projections do this at wide field of view; a security
-   camera's live PTZ view has the same behavior). To keep it from getting
-   severe, zoom defaults to 60° (max 100°) and pan is capped to ±100°
-   instead of allowing a full 360° spin.
+   Panning (yaw) wraps continuously, so you can drag all the way around
+   360°; tilt (pitch) is clamped since past the horizon/nadir extremes
+   there's nothing the lens actually captured. This is a *rectilinear*
+   (flat-photo) projection, so content still leans more the farther it
+   sits from the center of frame (an unavoidable property of any
+   flat-photo-style projection at wide field of view — not fixable without
+   switching to a curved/cylindrical projection).
 5. The preview updates live as you drag or adjust sliders (debounced
    ~60ms). Hit **Export Flattened...** to write the *current view* as a
    full-resolution image, or process an entire video through that same
@@ -108,6 +107,23 @@ The lens is modeled as an equidistant fisheye (`r = f * theta`), the
 standard model for this class of lens. `FisheyeFlattener.Core/DewarpMath.cs`
 builds a per-pixel remap once per settings change and reuses it across every
 video frame (via `Cv2.Remap`) for speed.
+
+The perspective (PTZ) view is built from a local tangent-plane (gnomonic)
+basis at the (yaw, pitch) view center, rather than composing independent
+pitch-then-yaw rotations. That distinction matters: naive Euler-angle
+composition is *not* roll-free for a nadir-referenced camera (a ceiling
+fisheye) as you pan — a real-world vertical line at fixed azimuth would
+project to wildly different output columns as yaw changed, which showed up
+as "the image rotates while panning." Verified numerically (a real vertical
+line traced across an elevation range landed at a constant output column
+for any yaw/pitch) and visually (rendered a synthetic grid and confirmed
+verticals stay vertical across a full pan sweep) before shipping the fix;
+see `PerspectivePanHasNoRollDriftForRealVerticalLine` in
+`FisheyeFlattener.Tests`.
+
+`PitchDeg` is the angle from the lens's optical axis/nadir (0 = straight
+down at the fisheye's center, ~90 = at the horizon) — not a tilt offset
+from some other reference.
 
 ## Packaging as a standalone .exe (optional, not done yet)
 

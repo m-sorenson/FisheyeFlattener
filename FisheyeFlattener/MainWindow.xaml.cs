@@ -17,13 +17,12 @@ public partial class MainWindow : System.Windows.Window
     private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
 
     private const double DefaultYawDeg = 0.0;
-    private const double DefaultPitchDeg = -60.0;
 
-    // Rectilinear (flat-photo) projection makes off-center content lean, worse at
-    // wide FOV and wide pan angles - there's no way to eliminate it while staying
-    // rectilinear, so we cap both to keep it from getting severe.
-    private const double MaxYawDeg = 100.0;
-    private const double MinYawDeg = -100.0;
+    // Pitch is the angle from the lens's optical axis/nadir (0 = straight down at the
+    // fisheye's center, ~90 = at the horizon) - see DewarpMath.PerspectiveParams.
+    private const double DefaultPitchDeg = 75.0;
+    private const double MinPitchDeg = 1.0;
+    private const double MaxPitchDeg = 105.0;
 
     private string? _sourcePath;
     private bool _isVideo;
@@ -136,7 +135,7 @@ public partial class MainWindow : System.Windows.Window
         SourceFlipVCheck.IsChecked = false;
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        FovSlider.Value = 60;
+        FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
         _levelPoint1 = null;
@@ -179,7 +178,7 @@ public partial class MainWindow : System.Windows.Window
     {
         _yawDeg = DefaultYawDeg;
         _pitchDeg = DefaultPitchDeg;
-        FovSlider.Value = 60;
+        FovSlider.Value = 90;
         RollSlider.Value = 0;
         _isSettingLevel = false;
         _levelPoint1 = null;
@@ -197,16 +196,16 @@ public partial class MainWindow : System.Windows.Window
         switch (e.Key)
         {
             case Key.Up:
-                _pitchDeg = Clamp(_pitchDeg + KeyStepDeg, -90, 90);
+                _pitchDeg = Clamp(_pitchDeg + KeyStepDeg, MinPitchDeg, MaxPitchDeg);
                 break;
             case Key.Down:
-                _pitchDeg = Clamp(_pitchDeg - KeyStepDeg, -90, 90);
+                _pitchDeg = Clamp(_pitchDeg - KeyStepDeg, MinPitchDeg, MaxPitchDeg);
                 break;
             case Key.Left:
-                _yawDeg = Clamp(_yawDeg - KeyStepDeg, MinYawDeg, MaxYawDeg);
+                _yawDeg = NormalizeAngleDeg(_yawDeg - KeyStepDeg);
                 break;
             case Key.Right:
-                _yawDeg = Clamp(_yawDeg + KeyStepDeg, MinYawDeg, MaxYawDeg);
+                _yawDeg = NormalizeAngleDeg(_yawDeg + KeyStepDeg);
                 break;
             default:
                 return;
@@ -295,11 +294,10 @@ public partial class MainWindow : System.Windows.Window
 
         // "grab and drag the image" feel: dragging right reveals what was to the left
         // (yaw decreases), dragging down reveals what was above (pitch increases).
-        // Yaw is clamped (not wrapped): a rectilinear view leans off-center content
-        // more the farther it pans, so instead of allowing a full 360° spin (which
-        // gets badly stretched near the edges), we cap the pan range.
-        _yawDeg = Clamp(_dragStartYaw - dx * degPerPixel, MinYawDeg, MaxYawDeg);
-        _pitchDeg = Clamp(_dragStartPitch + dy * degPerPixel, -90, 90);
+        // Yaw wraps continuously so you can drag all the way around 360°; pitch is
+        // clamped since past the horizon/nadir extremes there's nothing valid to show.
+        _yawDeg = NormalizeAngleDeg(_dragStartYaw - dx * degPerPixel);
+        _pitchDeg = Clamp(_dragStartPitch + dy * degPerPixel, MinPitchDeg, MaxPitchDeg);
 
         // Rebuilding the map is cheap (a few ms, parallelized across rows), so render
         // on every move event directly instead of debouncing - debouncing here just
