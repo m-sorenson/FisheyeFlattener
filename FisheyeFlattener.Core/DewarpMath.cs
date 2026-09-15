@@ -73,7 +73,10 @@ public static class DewarpMath
         double cp = Math.Cos(pitch), sp = Math.Sin(pitch);
         double cy = Math.Cos(yaw), sy = Math.Sin(yaw);
 
-        for (int v = 0; v < h; v++)
+        // Parallelized over rows (each row writes disjoint array slices, so this is
+        // safe): rebuilding this per-pixel trig map has to happen on every drag/zoom
+        // update, and a single-threaded loop is too slow to feel interactive.
+        System.Threading.Tasks.Parallel.For(0, h, v =>
         {
             double y = (v - h / 2.0) / focalOut;
             for (int u = 0; u < w; u++)
@@ -104,7 +107,7 @@ public static class DewarpMath
                 mapX[v, u] = (float)(calib.CenterX + r * Math.Cos(phi));
                 mapY[v, u] = (float)(calib.CenterY + r * Math.Sin(phi));
             }
-        }
+        });
 
         return new DewarpMap(mapX, mapY, w, h);
     }
@@ -126,7 +129,7 @@ public static class DewarpMath
         int wDenom = Math.Max(w - 1, 1);
         int hDenom = Math.Max(h - 1, 1);
 
-        for (int v = 0; v < h; v++)
+        System.Threading.Tasks.Parallel.For(0, h, v =>
         {
             // row 0 (top of output) = thetaTop (far/horizon), last row = thetaBottom (near/center)
             double theta = thetaTop + (v / (double)hDenom) * (thetaBottom - thetaTop);
@@ -146,7 +149,7 @@ public static class DewarpMath
                 mapX[v, u] = (float)(calib.CenterX + r * Math.Cos(phi));
                 mapY[v, u] = (float)(calib.CenterY + r * Math.Sin(phi));
             }
-        }
+        });
 
         return new DewarpMap(mapX, mapY, w, h);
     }

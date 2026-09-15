@@ -202,11 +202,16 @@ public partial class MainWindow : System.Windows.Window
 
         // "grab and drag the image" feel: dragging right reveals what was to the left
         // (yaw decreases), dragging down reveals what was above (pitch increases).
-        _yawDeg = Clamp(_dragStartYaw - dx * degPerPixel, -180, 180);
+        // Yaw wraps continuously (not clamped) so you can keep dragging the same
+        // direction and pan all the way around 360°; pitch stays clamped since past
+        // ±90° would flip the view upside down.
+        _yawDeg = NormalizeAngleDeg(_dragStartYaw - dx * degPerPixel);
         _pitchDeg = Clamp(_dragStartPitch + dy * degPerPixel, -90, 90);
 
-        _previewDebounce.Stop();
-        _previewDebounce.Start();
+        // Rebuilding the map is cheap (a few ms, parallelized across rows), so render
+        // on every move event directly instead of debouncing - debouncing here just
+        // made dragging look frozen until the mouse stopped moving.
+        OnParametersChanged();
     }
 
     private void PreviewImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -225,6 +230,16 @@ public partial class MainWindow : System.Windows.Window
     }
 
     private static double Clamp(double v, double min, double max) => Math.Max(min, Math.Min(max, v));
+
+    /// <summary>Wraps an angle into (-180, 180] so continuous dragging in one
+    /// direction keeps rotating instead of hitting a hard stop at ±180.</summary>
+    private static double NormalizeAngleDeg(double deg)
+    {
+        deg %= 360.0;
+        if (deg <= -180.0) deg += 360.0;
+        if (deg > 180.0) deg -= 360.0;
+        return deg;
+    }
 
     // --------------------------------------------------------- playback --
 
