@@ -128,42 +128,51 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 
    Motion-triggered recordings can also have a genuine, large gap between
    two consecutive frames — confirmed on real footage (a Protect Fisheye
-   export): a 55-second gap where the camera simply wasn't recording,
-   between two otherwise perfectly good frames. Preserving that gap
-   literally means holding a single frame on screen for 55 seconds before
-   playback continues, which looks exactly like "the video stopped" unless
-   you wait through the whole freeze — this was reported as the export
-   stopping early even though the live preview showed more content, and
-   was diagnosed by reading the user's actual source file directly:
-   ffprobe showed a real `avg_frame_rate` far below `r_frame_rate`
-   (confirming genuinely variable, not just imprecisely-averaged, timing),
-   and a direct frame-by-frame OpenCV read found all frames decoded
-   successfully with zero failures, but one 55033ms gap between two
-   specific frame indices. Any single frame's on-screen duration is now
-   capped at 2 seconds, so a real recording pause reads as a brief pause
-   rather than a stall.
+   export) three independent ways: OpenCV's own position, ffprobe reading
+   the container's raw packet PTS directly, and the camera's own
+   burned-in clock overlay, all agreeing on a ~55-second jump between two
+   specific, otherwise perfectly good frames (motion detection had simply
+   gone quiet for a while, so the camera wasn't recording). This was
+   originally reproduced as a literal hold on that one frame, capped at 2
+   seconds so it wouldn't be the full 55 — but checked against the actual
+   source file, that turned out to be wrong: common players evidently
+   don't honor a gap this size as a real-time wait at all (the flashing
+   police lights visible in this footage keep flashing continuously
+   through the gap when the source plays normally, with no visible
+   pause), so even a 2-second hold in the export was a pause the source
+   itself never actually shows and looked like a new, self-inflicted
+   stutter. Gaps bigger than 2 seconds are now collapsed to a
+   near-invisible ~0.1s instead of being displayed at all, matching what
+   viewers actually see rather than faithfully reproducing dead recording
+   time as a pause nobody asked for. (An earlier version of this fix
+   stopped at "cap the hold to 2 seconds," diagnosed by reading the
+   user's file directly — ffprobe showed a real `avg_frame_rate` far below
+   `r_frame_rate`, confirming genuinely variable timing, and a
+   frame-by-frame OpenCV read found the 55033ms gap at a specific frame
+   index — but shipping it and comparing side-by-side against the actual
+   source revealed the 2-second hold was still visibly wrong.)
 
-   Capping a frame's duration shortens the video's total length relative
-   to the source by however much was trimmed off a gap — muxing the
-   source's *full*, untouched audio track onto that shorter video would
-   throw everything after the gap out of sync by exactly that amount (the
-   video timeline would run ahead of the audio from that point on). Export
-   now builds the video's capped per-frame durations and the audio's kept
-   time ranges from the exact same values (not two independently-derived
-   calculations that could disagree at the edges), then uses an ffmpeg
-   `atrim`+`concat` audio filter to trim the source audio down to just
-   those kept ranges before muxing — so the audio gets the same time
-   compression through a gap as the video, and sync holds both before and
-   after every capped gap, not just up to the first one. Verified with a
-   synthetic pathological case (few frames, one huge gap, chosen so even
-   the last frame's own fallback duration — the file's overall average
-   interval, used since there's no "next" frame to measure a real gap
-   against — would itself exceed the cap) confirming the video and audio
-   totals match to the millisecond, and with a real ffmpeg encode/mux
-   confirming the `atrim`+`concat` filter syntax itself produces a file
-   with matching video/audio stream durations. Ordinary clips with no gap
-   large enough to cap take a simpler, single whole-track audio copy path
-   unchanged from before.
+   Collapsing a frame's duration shortens the video's total length
+   relative to the source by however much was trimmed off a gap — muxing
+   the source's *full*, untouched audio track onto that shorter video
+   would throw everything after the gap out of sync by exactly that
+   amount (the video timeline would run ahead of the audio from that
+   point on). Export now builds the video's collapsed per-frame durations
+   and the audio's kept time ranges from the exact same values (not two
+   independently-derived calculations that could disagree at the edges),
+   then uses an ffmpeg `atrim`+`concat` audio filter to trim the source
+   audio down to just those kept ranges before muxing — so the audio gets
+   the same time compression through a gap as the video, and sync holds
+   both before and after every collapsed gap, not just up to the first
+   one. Verified with a synthetic pathological case (few frames, one huge
+   gap, chosen so even the last frame's own fallback duration — the
+   file's overall average interval, used since there's no "next" frame to
+   measure a real gap against — would itself exceed the threshold)
+   confirming the video and audio totals match to the millisecond, and
+   with a real ffmpeg encode/mux confirming the `atrim`+`concat` filter
+   syntax itself produces a file with matching video/audio stream
+   durations. Ordinary clips with no gap large enough to collapse take a
+   simpler, single whole-track audio copy path unchanged from before.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so

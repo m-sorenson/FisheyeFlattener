@@ -30,14 +30,14 @@ public static class VideoProcessor
     ///
     /// Returns the list of (start, end) time ranges, in the *source* file's own
     /// timeline (seconds), that the audio track should be trimmed down to match -
-    /// see <see cref="WriteConcatList"/>/<see cref="MaxFrameDurationSec"/> for why
-    /// this can differ from "the whole file": a real recording gap gets its held
-    /// frame's on-screen duration capped, which shortens the video's total length
+    /// see <see cref="WriteConcatList"/>/<see cref="GapThresholdSec"/> for why this
+    /// can differ from "the whole file": a real recording gap gets collapsed to a
+    /// near-invisible on-screen duration, which shortens the video's total length
     /// relative to the source: muxing the *full* original audio back onto that
     /// shorter video would leave everything after the gap out of sync by exactly
     /// however much was trimmed off. Null means no trimming is needed (either the
     /// constant-fps fallback path was used, which can't produce this map, or no gap
-    /// in the source was large enough to be capped) - the caller should mux the
+    /// in the source was large enough to be collapsed) - the caller should mux the
     /// whole original audio track unchanged.
     /// </summary>
     public static List<(double Start, double End)>? ProcessVideo(
@@ -169,18 +169,32 @@ public static class VideoProcessor
     private static string FramePath(string dir, int idx) => Path.Combine(dir, $"f{idx:D8}.bmp");
 
     /// <summary>Motion-triggered recording can have a real, large gap between two
-    /// consecutive frames (confirmed on real footage: a 55-second gap where the
-    /// camera simply wasn't recording). Reproducing that literally means freezing on
-    /// a single frame for 55 seconds before the video continues - which is
-    /// indistinguishable from "the video stopped" unless you wait through the whole
-    /// freeze, and is exactly what looked like a truncated export. Cap how long any
-    /// one frame can be held for so a real recording pause doesn't read as a stall.</summary>
-    private const double MaxFrameDurationSec = 2.0;
+    /// consecutive frames where the camera simply wasn't recording (confirmed on real
+    /// footage via three independent sources: OpenCV's own position, ffprobe's raw
+    /// packet PTS, and the camera's own burned-in clock overlay jumping by the same
+    /// ~55 seconds between those two frames). Initially this was reproduced as a
+    /// literal hold on that one frame (capped at 2s so it wouldn't be the full 55) -
+    /// but confirmed against the source file directly: common players evidently don't
+    /// honor a gap this size as a real-time wait at all (the flashing police lights in
+    /// this footage keep flashing continuously through it, with no visible pause), so
+    /// even a 2-second hold in the export was a pause the source itself never actually
+    /// shows. Gaps bigger than this threshold are now treated as "camera was idle,
+    /// this timing isn't meaningful" and collapsed to a near-invisible duration
+    /// instead of being shown at all - matching what viewers actually see when the
+    /// source plays normally, not a faithful-but-wrong reproduction of dead air.</summary>
+    private const double GapThresholdSec = 2.0;
+
+    /// <summary>On-screen duration substituted for any gap larger than
+    /// GapThresholdSec - short enough to be imperceptible as a pause (about one frame
+    /// at a typical low frame rate), not zero (ffmpeg's concat demuxer requires a
+    /// positive duration).</summary>
+    private const double CollapsedGapDurationSec = 0.1;
 
     /// <summary>Each frame's on-screen duration (seconds): the gap to the next
-    /// frame's real timestamp, capped at MaxFrameDurationSec (see above); the last
-    /// frame (no "next" to measure against) uses the file's overall average interval,
-    /// also capped. Shared by <see cref="WriteConcatList"/> (the video timeline) and
+    /// frame's real timestamp - or CollapsedGapDurationSec if that gap exceeds
+    /// GapThresholdSec (see above); the last frame (no "next" to measure against)
+    /// uses the file's overall average interval, same rule applied. Shared by
+    /// <see cref="WriteConcatList"/> (the video timeline) and
     /// <see cref="BuildAudioKeepSegments"/> (the matching audio timeline) so the two
     /// are guaranteed to sum to the same total - see BuildAudioKeepSegments.</summary>
     private static double[] ComputeFrameDurationsSec(List<double> timestampsMs, int frameCount)
@@ -195,7 +209,7 @@ public static class VideoProcessor
             double raw = i < frameCount - 1
                 ? Math.Max((timestampsMs[i + 1] - timestampsMs[i]) / 1000.0, 0.001)
                 : Math.Max(avgIntervalSec, 0.001);
-            durations[i] = Math.Min(raw, MaxFrameDurationSec);
+            durations[i] = raw > GapThresholdSec ? CollapsedGapDurationSec : raw;
         }
         return durations;
     }
@@ -217,19 +231,19 @@ public static class VideoProcessor
     }
 
     /// <summary>
-    /// Mirrors the same capping <see cref="WriteConcatList"/> applies to the video
+    /// Mirrors the same collapsing <see cref="WriteConcatList"/> applies to the video
     /// timeline, but expressed as which spans of the *source's* audio timeline to
-    /// keep: everything up to a capped gap plays normally (1:1 with the source), the
-    /// gap itself keeps only its first <see cref="MaxFrameDurationSec"/> of audio
-    /// (matching how long the held frame is actually shown for) with the rest
+    /// keep: everything up to a collapsed gap plays normally (1:1 with the source),
+    /// the gap itself keeps only its first <see cref="CollapsedGapDurationSec"/> of
+    /// audio (matching how long the held frame is actually shown for) with the rest
     /// dropped, then the next span resumes from the real timestamp of the frame
     /// right after the gap. Concatenating these spans back-to-back produces an audio
-    /// track whose total length matches the (now-shorter) capped video exactly -
+    /// track whose total length matches the (now-shorter) collapsed video exactly -
     /// walking the *same* per-frame duration values used for the video (rather than
     /// independently re-deriving gap sizes/thresholds) guarantees the two totals
     /// agree exactly rather than approximately, including the edge case where the
     /// very last frame's own duration (an average, not a real gap - there's no "next"
-    /// frame to measure against) is itself large enough to be capped.
+    /// frame to measure against) is itself large enough to be collapsed.
     /// </summary>
     private static List<(double Start, double End)> BuildAudioKeepSegments(
         List<double> timestampsMs, double[] frameDurationsSec, int frameCount)
