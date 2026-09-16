@@ -90,13 +90,31 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    timing (not just an imprecise average), which no single constant rate
    can reproduce correctly; it showed up as a real desync at whichever
    specific moment the original timing was uneven, not a uniform drift.
-   Each processed frame is written to a temp PNG, and ffmpeg's concat
-   demuxer assembles them using the source's real per-frame gaps
-   (`-fps_mode vfr`). Without ffmpeg, export falls back to a single
-   constant rate computed as `actual frame count / actual duration` (both
-   via ffprobe, since a codec's reported average and OpenCV's own
-   frame-count property are frequently just container-metadata estimates
-   for real-world compressed video, not a true count). The export-complete
+   Each processed frame is written to a temp BMP (not PNG — BMP is a raw
+   byte dump with no compression work, which turned out to matter more for
+   export speed than the video encoder itself; these are temp files
+   deleted right after ffmpeg reads them, so the larger disk footprint
+   costs nothing that matters), and ffmpeg's concat demuxer assembles them
+   using the source's real per-frame gaps (`-fps_mode vfr`). Without
+   ffmpeg, export falls back to a single constant rate computed as `actual
+   frame count / actual duration` (both via ffprobe, since a codec's
+   reported average and OpenCV's own frame-count property are frequently
+   just container-metadata estimates for real-world compressed video, not
+   a true count).
+
+   That final assembly step uses GPU hardware encoding when available —
+   NVIDIA NVENC, AMD AMF, or Intel QuickSync, tried in that order and
+   verified with a real tiny test encode (ffmpeg being *compiled* with
+   support doesn't mean the driver actually accepts it), falling back to
+   software `libx264` if none work. If a hardware encoder passes that
+   quick check but then fails on the real export anyway, it retries once
+   with `libx264` automatically rather than losing the export. Measured
+   directly on this machine (RTX 5080): switching the temp frame format
+   from PNG to BMP was the bigger win (8.36s → ~5.1s for a 20s 1280×720
+   clip) — the encoder itself wasn't the dominant cost here, so don't
+   assume a GPU alone will fix a slow export if most of the time is spent
+   in frame writing instead.
+   The export-complete
    status message reports the resulting video/audio stream durations and
    their gap, so a mismatch is visible rather than silent.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame

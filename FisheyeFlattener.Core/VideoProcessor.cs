@@ -74,7 +74,6 @@ public static class VideoProcessor
         try
         {
             var timestampsMs = new List<double>();
-            var pngParams = new int[] { (int)ImwriteFlags.PngCompression, 1 };
 
             int frameIdx = 0;
             using var frame = new Mat();
@@ -89,7 +88,12 @@ public static class VideoProcessor
                     break;
 
                 using var flat = FlattenPipeline.Run(frame, mapX, mapY, transform);
-                Cv2.ImWrite(FramePath(tempDir, frameIdx), flat, pngParams);
+                // BMP, not PNG: near-zero encode overhead (a raw byte dump vs. real
+                // compression work) - these are temp files deleted right after ffmpeg
+                // reads them, so the larger disk footprint costs nothing that matters,
+                // and PNG encoding turned out to be a bigger share of export time than
+                // the video encoder itself.
+                Cv2.ImWrite(FramePath(tempDir, frameIdx), flat);
                 timestampsMs.Add(ts);
 
                 frameIdx++;
@@ -109,7 +113,7 @@ public static class VideoProcessor
         }
     }
 
-    private static string FramePath(string dir, int idx) => Path.Combine(dir, $"f{idx:D8}.png");
+    private static string FramePath(string dir, int idx) => Path.Combine(dir, $"f{idx:D8}.bmp");
 
     /// <summary>ffmpeg's concat demuxer format: each frame file followed by how long
     /// (seconds) it should be displayed for, taken directly from the gap to the next
@@ -136,6 +140,23 @@ public static class VideoProcessor
 
     private static void RunFfmpegConcat(string listPath, string outPath)
     {
+        string encoder = AudioMuxer.PreferredVideoEncoder;
+        try
+        {
+            RunFfmpegConcatWithEncoder(listPath, outPath, encoder);
+        }
+        catch (IOException) when (encoder != "libx264")
+        {
+            // The hardware encoder passed its quick capability test but failed on the
+            // real export anyway (an unsupported resolution, a driver edge case,
+            // VRAM pressure, etc.) - fall back to software rather than losing the
+            // whole export over it.
+            RunFfmpegConcatWithEncoder(listPath, outPath, "libx264");
+        }
+    }
+
+    private static void RunFfmpegConcatWithEncoder(string listPath, string outPath, string encoder)
+    {
         string? ffmpeg = AudioMuxer.FfmpegPath;
         if (ffmpeg == null)
             throw new IOException("ffmpeg is not available to assemble the video.");
@@ -147,21 +168,22 @@ public static class VideoProcessor
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in new[]
-                 {
-                     // libx264 with yuv420p requires even width/height (chroma planes are
-                     // subsampled 2x in both directions); the app lets output width/height
-                     // be set to any value including odd ones, so force-round down to even
-                     // rather than fail - "Could not open encoder... Invalid argument" is
-                     // exactly what libx264 does for an odd dimension.
-                     "-y", "-f", "concat", "-safe", "0", "-i", listPath,
-                     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                     "-fps_mode", "vfr", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "18",
-                     outPath,
-                 })
+        var args = new System.Collections.Generic.List<string>
         {
+            "-y", "-f", "concat", "-safe", "0", "-i", listPath,
+            // libx264 with yuv420p requires even width/height (chroma planes are
+            // subsampled 2x in both directions); the app lets output width/height be
+            // set to any value including odd ones, so force-round down to even
+            // rather than fail - "Could not open encoder... Invalid argument" is
+            // exactly what libx264 (and the hardware encoders) do for an odd
+            // dimension.
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-fps_mode", "vfr", "-pix_fmt", "yuv420p", "-c:v", encoder,
+        };
+        args.AddRange(AudioMuxer.EncoderQualityArgs(encoder));
+        args.Add(outPath);
+        foreach (var arg in args)
             psi.ArgumentList.Add(arg);
-        }
 
         using var proc = Process.Start(psi);
         var stdoutTask = proc!.StandardOutput.ReadToEndAsync();
@@ -172,7 +194,7 @@ public static class VideoProcessor
         if (proc.ExitCode != 0 || !File.Exists(outPath))
         {
             string tail = stderrTask.Result.Length <= 800 ? stderrTask.Result : stderrTask.Result[^800..];
-            throw new IOException($"ffmpeg failed to assemble the video (exit {proc.ExitCode}): {tail.Trim()}");
+            throw new IOException($"ffmpeg ({encoder}) failed to assemble the video (exit {proc.ExitCode}): {tail.Trim()}");
         }
     }
 

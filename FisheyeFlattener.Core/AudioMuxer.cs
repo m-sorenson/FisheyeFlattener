@@ -39,6 +39,97 @@ public static class AudioMuxer
         }
     }
 
+    private static string? _detectedEncoder;
+    private static bool _encoderDetected;
+
+    /// <summary>
+    /// The best available H.264 encoder for this machine: tries NVIDIA NVENC, AMD
+    /// AMF, then Intel QuickSync (common consumer GPU encoders, all built into the
+    /// ffmpeg distribution this app installs), falling back to libx264 (software) if
+    /// none of them actually work here. ffmpeg being *compiled* with support for one
+    /// of these doesn't mean the GPU/driver on this machine actually accepts it, so
+    /// each candidate is verified with a real tiny test encode rather than assumed
+    /// from the presence of a matching graphics card.
+    /// </summary>
+    public static string PreferredVideoEncoder
+    {
+        get
+        {
+            if (!_encoderDetected)
+            {
+                _detectedEncoder = DetectHardwareEncoder();
+                _encoderDetected = true;
+            }
+            return _detectedEncoder ?? "libx264";
+        }
+    }
+
+    /// <summary>ffmpeg quality/preset arguments appropriate for the given video
+    /// encoder - each hardware encoder uses different flag names than libx264's
+    /// familiar -crf.</summary>
+    public static string[] EncoderQualityArgs(string encoder) => encoder switch
+    {
+        "h264_nvenc" => new[] { "-preset", "p4", "-cq", "20" },
+        "h264_amf" => new[] { "-quality", "balanced", "-rc", "cqp", "-qp_i", "20", "-qp_p", "20" },
+        "h264_qsv" => new[] { "-preset", "medium", "-global_quality", "20" },
+        _ => new[] { "-preset", "medium", "-crf", "18" },
+    };
+
+    private static string? DetectHardwareEncoder()
+    {
+        ResolveTools();
+        if (_ffmpegPath == null)
+            return null;
+
+        foreach (var candidate in new[] { "h264_nvenc", "h264_amf", "h264_qsv" })
+        {
+            if (TestEncoder(candidate))
+                return candidate;
+        }
+        return null;
+    }
+
+    private static bool TestEncoder(string encoder)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(_ffmpegPath!)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            // 256x256: comfortably above NVENC's (and other hardware encoders')
+            // minimum supported frame dimension - a too-small test frame fails with
+            // "Frame Dimension less than the minimum supported value", which looks
+            // exactly like "this encoder doesn't work here" but isn't.
+            foreach (var arg in new[]
+                     {
+                         "-y", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
+                         "-c:v", encoder, "-f", "null", "-",
+                     })
+            {
+                psi.ArgumentList.Add(arg);
+            }
+
+            using var p = Process.Start(psi);
+            var stdoutTask = p!.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(15000))
+            {
+                p.Kill(entireProcessTree: true);
+                return false;
+            }
+            Task.WaitAll(stdoutTask, stderrTask);
+            return p.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void ResolveTools()
     {
         if (_resolved)
