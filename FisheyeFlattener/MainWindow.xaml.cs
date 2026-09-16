@@ -596,7 +596,7 @@ public partial class MainWindow : System.Windows.Window
 
             try
             {
-                bool includedAudio = await Task.Run(() =>
+                (bool includedAudio, double? videoDur, double? audioDur) = await Task.Run(() =>
                 {
                     VideoProcessor.ProcessVideo(inPath, tempVideoOnlyPath, mapX, mapY, transform, (done, total) =>
                     {
@@ -609,10 +609,16 @@ public partial class MainWindow : System.Windows.Window
                     });
 
                     Dispatcher.Invoke(() => StatusText.Text = "Merging audio...");
-                    return AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath);
+                    bool audioOk = AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath);
+                    var (v, a) = AudioMuxer.GetStreamDurations(outPath);
+                    return (audioOk, v, a);
                 });
+
+                string durNote = videoDur.HasValue && audioDur.HasValue
+                    ? $" (video {videoDur:0.00}s, audio {audioDur:0.00}s, Δ{Math.Abs(videoDur.Value - audioDur.Value):0.00}s)"
+                    : "";
                 StatusText.Text = includedAudio
-                    ? "Video export complete."
+                    ? $"Video export complete.{durNote}"
                     : $"Video export complete - no audio: {AudioMuxer.LastSkipReason}";
             }
             catch (Exception ex)

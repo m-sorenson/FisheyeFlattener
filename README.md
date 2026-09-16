@@ -83,14 +83,18 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    No ffmpeg, or no audio track in the source → you still get a valid
    video, just without audio; the status bar says which happened.
 
-   The exported video's frame rate is computed as `frame count / actual
-   container duration` (via ffprobe) rather than trusted from the source
-   codec's reported average — for real-world footage that reported value
-   can be a rounded/imprecise approximation (confirmed against real
-   security footage: OpenCV reported 17.909 fps, verified with the wrong
-   value the output's total length silently didn't match its audio track's
-   length, causing a growing gap across the file). Falls back to the
-   reported value only if ffprobe isn't available.
+   The exported video's frame rate is computed as `actual frame count /
+   actual container duration` (both via ffprobe) rather than trusted from
+   the source codec's reported average or from OpenCV's own frame-count
+   property — both of those are frequently just *estimates* from container
+   metadata for real-world compressed video, not a true count, and using
+   an estimate on one side of that ratio while writing that many actual
+   frames on the other reintroduces the same class of mismatch. The frame
+   count specifically comes from ffprobe's `-count_frames`, which forces
+   real decoding to get an exact number rather than trusting metadata.
+   Falls back to the reported average only if ffprobe isn't available. The
+   export-complete status message reports the resulting video/audio stream
+   durations and their gap, so a mismatch is visible rather than silent.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so

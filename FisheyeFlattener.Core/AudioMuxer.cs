@@ -147,6 +147,113 @@ public static class AudioMuxer
         }
     }
 
+    /// <summary>
+    /// Counts a video's actual decodable frames via ffprobe's -count_frames, which
+    /// forces real decoding rather than trusting container metadata. Deliberately NOT
+    /// the same thing as OpenCV's CAP_PROP_FRAME_COUNT or ffprobe's plain nb_frames
+    /// field: both of those are frequently just an *estimate* (duration * average
+    /// fps) for real-world compressed video, not an actual count, and using an
+    /// estimate on one side of a frames/duration ratio while writing that many actual
+    /// frames on the other reintroduces the exact mismatch this exists to eliminate.
+    /// Slower than a metadata read (real decode), so allows a longer timeout. Returns
+    /// null if ffprobe isn't available or counting failed/timed out.
+    /// </summary>
+    public static int? GetActualFrameCount(string path)
+    {
+        ResolveTools();
+        if (_ffprobePath == null)
+            return null;
+        try
+        {
+            var psi = new ProcessStartInfo(_ffprobePath)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-v");
+            psi.ArgumentList.Add("error");
+            psi.ArgumentList.Add("-count_frames");
+            psi.ArgumentList.Add("-select_streams");
+            psi.ArgumentList.Add("v:0");
+            psi.ArgumentList.Add("-show_entries");
+            psi.ArgumentList.Add("stream=nb_read_frames");
+            psi.ArgumentList.Add("-of");
+            psi.ArgumentList.Add("csv=p=0");
+            psi.ArgumentList.Add(path);
+
+            using var p = Process.Start(psi);
+            var stdoutTask = p!.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(120_000))
+            {
+                p.Kill(entireProcessTree: true);
+                return null;
+            }
+            Task.WaitAll(stdoutTask, stderrTask);
+            string output = stdoutTask.Result.Trim();
+            return int.TryParse(output, out int count) && count > 0 ? count : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Per-stream duration (video, audio) of a media file, for diagnosing a
+    /// mismatch after the fact. Either value is null if that stream/duration couldn't
+    /// be read.</summary>
+    public static (double? Video, double? Audio) GetStreamDurations(string path)
+    {
+        ResolveTools();
+        if (_ffprobePath == null)
+            return (null, null);
+
+        double? Query(string select)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(_ffprobePath!)
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                psi.ArgumentList.Add("-v");
+                psi.ArgumentList.Add("error");
+                psi.ArgumentList.Add("-select_streams");
+                psi.ArgumentList.Add(select);
+                psi.ArgumentList.Add("-show_entries");
+                psi.ArgumentList.Add("stream=duration");
+                psi.ArgumentList.Add("-of");
+                psi.ArgumentList.Add("csv=p=0");
+                psi.ArgumentList.Add(path);
+
+                using var p = Process.Start(psi);
+                var stdoutTask = p!.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(15000))
+                {
+                    p.Kill(entireProcessTree: true);
+                    return null;
+                }
+                Task.WaitAll(stdoutTask, stderrTask);
+                string output = stdoutTask.Result.Trim();
+                return double.TryParse(output, System.Globalization.CultureInfo.InvariantCulture, out double seconds) && seconds > 0
+                    ? seconds
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        return (Query("v:0"), Query("a:0"));
+    }
+
     private static bool SourceHasAudio(string sourcePath, out string stderr)
     {
         stderr = "";
