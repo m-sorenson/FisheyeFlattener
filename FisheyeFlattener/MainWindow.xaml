@@ -38,13 +38,24 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="PlayPauseButton" Grid.Column="0" Content="Play" Padding="10,5" Width="70"
-                        Click="PlayPauseButton_Click"/>
+                <Button x:Name="PlayPauseButton" Grid.Column="0" Padding="0" Width="40" Height="32"
+                        Click="PlayPauseButton_Click">
+                    <TextBlock x:Name="PlayPauseIcon" FontFamily="Segoe MDL2 Assets" Text="&#xE768;"
+                               FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Button>
                 <Slider x:Name="PositionSlider" Grid.Column="1" VerticalAlignment="Center" Margin="8,0"
                         ValueChanged="PositionSlider_ValueChanged"/>
                 <TextBlock x:Name="TimeText" Grid.Column="2" Text="0:00 / 0:00" VerticalAlignment="Center"
-                           MinWidth="90" HorizontalAlignment="Right"/>
+                           MinWidth="90" HorizontalAlignment="Right" Margin="0,0,10,0"/>
+                <Button x:Name="MuteButton" Grid.Column="3" Padding="0" Width="28" Height="28" Margin="0,0,4,0"
+                        Click="MuteButton_Click">
+                    <TextBlock x:Name="MuteIcon" Text="🔊" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Button>
+                <Slider x:Name="VolumeSlider" Grid.Column="4" Width="80" VerticalAlignment="Center"
+                        Minimum="0" Maximum="100" Value="100" ValueChanged="VolumeSlider_ValueChanged"/>
             </Grid>
 
             <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">

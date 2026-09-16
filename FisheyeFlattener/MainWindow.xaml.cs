@@ -58,6 +58,13 @@ public partial class MainWindow : System.Windows.Window
     private readonly Stopwatch _playbackStopwatch = new();
     private int _playbackStartFrame;
 
+    // Audio: OpenCV (used for the video frames above) has no audio output at all, so
+    // playback audio is a separate System.Windows.Media.MediaPlayer kept roughly in
+    // sync with the frame position (synced on play/pause/seek, and lightly corrected
+    // for drift each tick).
+    private System.Windows.Media.MediaPlayer? _audioPlayer;
+    private bool _isMuted;
+
     // Field initializer: NumericSlider controls fire ValueChanged as soon as XAML
     // assigns their initial Value during InitializeComponent(), so this must exist
     // before that call happens (constructor-body assignment runs too late).
@@ -358,6 +365,11 @@ public partial class MainWindow : System.Windows.Window
         _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
         _playbackTimer.Tick += PlaybackTimer_Tick;
 
+        _audioPlayer = new System.Windows.Media.MediaPlayer();
+        if (_sourcePath != null)
+            _audioPlayer.Open(new Uri(_sourcePath));
+        ApplyVolume();
+
         _suppressSeek = true;
         PositionSlider.Minimum = 0;
         PositionSlider.Maximum = Math.Max(_playbackTotalFrames - 1, 0);
@@ -365,7 +377,7 @@ public partial class MainWindow : System.Windows.Window
         _suppressSeek = false;
 
         _isPlaying = false;
-        PlayPauseButton.Content = "Play";
+        PlayPauseIcon.Text = "";
         PlaybackPanel.Visibility = Visibility.Visible;
         UpdateTimeText(0);
     }
@@ -386,18 +398,24 @@ public partial class MainWindow : System.Windows.Window
             return;
         EnsureCachedMap();
         _isPlaying = true;
-        PlayPauseButton.Content = "Pause";
+        PlayPauseIcon.Text = "";
         _playbackStartFrame = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
         _playbackStopwatch.Restart();
+        if (_audioPlayer != null)
+        {
+            _audioPlayer.Position = TimeSpan.FromSeconds(_playbackStartFrame / _playbackFps);
+            _audioPlayer.Play();
+        }
         _playbackTimer.Start();
     }
 
     private void PausePlayback()
     {
         _isPlaying = false;
-        PlayPauseButton.Content = "Play";
+        PlayPauseIcon.Text = "";
         _playbackTimer?.Stop();
         _playbackStopwatch.Stop();
+        _audioPlayer?.Pause();
     }
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
@@ -429,6 +447,8 @@ public partial class MainWindow : System.Windows.Window
             PositionSlider.Value = 0;
             _suppressSeek = false;
             UpdateTimeText(0);
+            if (_audioPlayer != null)
+                _audioPlayer.Position = TimeSpan.Zero;
             return;
         }
 
@@ -441,6 +461,17 @@ public partial class MainWindow : System.Windows.Window
         PositionSlider.Value = Math.Min(posFrames, PositionSlider.Maximum);
         _suppressSeek = false;
         UpdateTimeText(posFrames);
+
+        // Both the video (OpenCV, stopwatch-paced) and audio (MediaPlayer, its own
+        // clock) target real time independently and can drift apart over a long
+        // clip; nudge audio back in sync once it's off by more than ~0.3s.
+        if (_audioPlayer?.NaturalDuration.HasTimeSpan == true)
+        {
+            double expected = posFrames / _playbackFps;
+            double actual = _audioPlayer.Position.TotalSeconds;
+            if (Math.Abs(actual - expected) > 0.3)
+                _audioPlayer.Position = TimeSpan.FromSeconds(expected);
+        }
     }
 
     private void PositionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -464,11 +495,36 @@ public partial class MainWindow : System.Windows.Window
             _currentFrame = frame;
             RenderPreviewFrame(_currentFrame);
             UpdateTimeText(frameIndex);
+            if (_audioPlayer != null)
+                _audioPlayer.Position = TimeSpan.FromSeconds(frameIndex / _playbackFps);
         }
         else
         {
             frame.Dispose();
         }
+    }
+
+    private void MuteButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isMuted = !_isMuted;
+        ApplyVolume();
+    }
+
+    private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (VolumeSlider.Value > 0 && _isMuted)
+            _isMuted = false; // dragging the slider back up implicitly unmutes
+        ApplyVolume();
+    }
+
+    private void ApplyVolume()
+    {
+        if (_audioPlayer != null)
+        {
+            _audioPlayer.Volume = VolumeSlider.Value / 100.0;
+            _audioPlayer.IsMuted = _isMuted;
+        }
+        MuteIcon.Text = _isMuted || VolumeSlider.Value <= 0 ? "🔇" : "🔊";
     }
 
     private void UpdateTimeText(int posFrames)
@@ -490,7 +546,10 @@ public partial class MainWindow : System.Windows.Window
         _playbackTimer = null;
         _playbackCapture?.Dispose();
         _playbackCapture = null;
+        _audioPlayer?.Close();
+        _audioPlayer = null;
         _isPlaying = false;
+        _playbackStopwatch.Stop();
     }
 
     // ------------------------------------------------------------ export --
