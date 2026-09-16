@@ -423,10 +423,16 @@ public partial class MainWindow : System.Windows.Window
         if (_playbackCapture == null)
             return;
 
-        // How many frames SHOULD have played by now, based on wall-clock time, not
-        // how many ticks have fired - this is what keeps speed correct even when
-        // per-frame remap+render is slower than the video's own frame interval.
-        int targetFrame = _playbackStartFrame + (int)(_playbackStopwatch.Elapsed.TotalSeconds * _playbackFps);
+        // Audio hardware timing is the one clock that's actually accurate in real
+        // time (the sound device paces it, not our code), so video slaves to
+        // wherever audio actually is rather than each being paced by its own
+        // independent clock - two independent clocks (a stopwatch here, MediaPlayer's
+        // internal clock for audio) drift apart from each other with nothing pulling
+        // them back together, which is exactly what "completely out of sync" was.
+        // Stopwatch pacing is only a fallback for when there's no audio player.
+        int targetFrame = _audioPlayer != null
+            ? (int)(_audioPlayer.Position.TotalSeconds * _playbackFps)
+            : _playbackStartFrame + (int)(_playbackStopwatch.Elapsed.TotalSeconds * _playbackFps);
         int currentFrame = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
         if (targetFrame <= currentFrame)
             return; // not time for the next frame yet
@@ -461,17 +467,6 @@ public partial class MainWindow : System.Windows.Window
         PositionSlider.Value = Math.Min(posFrames, PositionSlider.Maximum);
         _suppressSeek = false;
         UpdateTimeText(posFrames);
-
-        // Both the video (OpenCV, stopwatch-paced) and audio (MediaPlayer, its own
-        // clock) target real time independently and can drift apart over a long
-        // clip; nudge audio back in sync once it's off by more than ~0.3s.
-        if (_audioPlayer?.NaturalDuration.HasTimeSpan == true)
-        {
-            double expected = posFrames / _playbackFps;
-            double actual = _audioPlayer.Position.TotalSeconds;
-            if (Math.Abs(actual - expected) > 0.3)
-                _audioPlayer.Position = TimeSpan.FromSeconds(expected);
-        }
     }
 
     private void PositionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

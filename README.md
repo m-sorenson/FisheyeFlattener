@@ -111,10 +111,14 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    Audio during playback is a separate `MediaPlayer` (WPF's own, wraps
    Windows Media Foundation) playing the source file's audio track,
    because OpenCV — used for the video frames — has no audio output path
-   at all. It's kept roughly in sync with the video (synced on play/pause/
-   seek, nudged back in sync if it drifts more than ~0.3s) rather than
-   frame-perfectly locked, which is fine for reviewing footage but not
-   meant for anything needing tight A/V sync.
+   at all. Video is slaved to wherever audio actually is (its position is
+   read every tick and used directly to pick which frame to show) rather
+   than the two being paced by independent clocks — two clocks that both
+   target "real time" on their own still drift apart from each other with
+   nothing pulling them back together, which is what caused the first
+   version of this to go noticeably out of sync. Audio hardware timing is
+   the one clock actually paced by something external and accurate (the
+   sound device), so it's the one video should follow.
 
 Note: a 360° panorama-unwrap mode existed in an earlier version and is
 still in `FisheyeFlattener.Core` (`DewarpMath.BuildPanoramaMap`) but isn't
