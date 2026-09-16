@@ -28,6 +28,17 @@ public static class AudioMuxer
         return _ffmpegPath != null;
     }
 
+    /// <summary>The resolved ffmpeg executable (bare name if on PATH, or a full path
+    /// found via the winget install folder fallback), or null if unavailable.</summary>
+    public static string? FfmpegPath
+    {
+        get
+        {
+            ResolveTools();
+            return _ffmpegPath;
+        }
+    }
+
     private static void ResolveTools()
     {
         if (_resolved)

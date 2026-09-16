@@ -83,18 +83,22 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    No ffmpeg, or no audio track in the source → you still get a valid
    video, just without audio; the status bar says which happened.
 
-   The exported video's frame rate is computed as `actual frame count /
-   actual container duration` (both via ffprobe) rather than trusted from
-   the source codec's reported average or from OpenCV's own frame-count
-   property — both of those are frequently just *estimates* from container
-   metadata for real-world compressed video, not a true count, and using
-   an estimate on one side of that ratio while writing that many actual
-   frames on the other reintroduces the same class of mismatch. The frame
-   count specifically comes from ffprobe's `-count_frames`, which forces
-   real decoding to get an exact number rather than trusting metadata.
-   Falls back to the reported average only if ffprobe isn't available. The
-   export-complete status message reports the resulting video/audio stream
-   durations and their gap, so a mismatch is visible rather than silent.
+   When ffmpeg is available, export preserves each frame's own original
+   timestamp instead of writing the whole file at any single constant
+   frame rate — even a very precisely *averaged* one. Motion-triggered
+   security footage in particular can have genuinely irregular frame
+   timing (not just an imprecise average), which no single constant rate
+   can reproduce correctly; it showed up as a real desync at whichever
+   specific moment the original timing was uneven, not a uniform drift.
+   Each processed frame is written to a temp PNG, and ffmpeg's concat
+   demuxer assembles them using the source's real per-frame gaps
+   (`-fps_mode vfr`). Without ffmpeg, export falls back to a single
+   constant rate computed as `actual frame count / actual duration` (both
+   via ffprobe, since a codec's reported average and OpenCV's own
+   frame-count property are frequently just container-metadata estimates
+   for real-world compressed video, not a true count). The export-complete
+   status message reports the resulting video/audio stream durations and
+   their gap, so a mismatch is visible rather than silent.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so
