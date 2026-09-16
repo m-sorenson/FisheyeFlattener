@@ -117,6 +117,14 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    The export-complete
    status message reports the resulting video/audio stream durations and
    their gap, so a mismatch is visible rather than silent.
+
+   If the source stops providing frames partway through (a decode hiccup
+   on one damaged/unusual frame), export seeks a little further ahead and
+   retries a few times rather than treating that as the end of the clip.
+   If it's still well short of the source's own frame-count estimate after
+   that (or a temp frame fails to write at all — disk full, permissions),
+   export now fails with a clear error instead of silently producing a
+   shorter, truncated video and calling it done.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so

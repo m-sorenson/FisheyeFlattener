@@ -76,6 +76,7 @@ public static class VideoProcessor
             var timestampsMs = new List<double>();
 
             int frameIdx = 0;
+            int consecutiveReadFailures = 0;
             using var frame = new Mat();
             while (true)
             {
@@ -85,7 +86,25 @@ public static class VideoProcessor
                 // The upcoming frame's timestamp, queried before Read() advances past it.
                 double ts = cap.Get(VideoCaptureProperties.PosMsec);
                 if (!cap.Read(frame) || frame.Empty())
+                {
+                    // Could be genuine end-of-stream, or a transient decode hiccup on
+                    // one damaged/unusual frame in otherwise-fine footage. If we're
+                    // well short of the source's own frame-count estimate, try seeking
+                    // a little further ahead and continuing rather than immediately
+                    // treating this as the end - silently stopping partway through and
+                    // still calling the export "successful" is worse than a few wasted
+                    // retry attempts.
+                    consecutiveReadFailures++;
+                    bool wellShortOfEstimate = total > 10 && frameIdx < total * 0.7;
+                    if (wellShortOfEstimate && consecutiveReadFailures <= 10)
+                    {
+                        double skipToMs = ts + consecutiveReadFailures * 200.0; // nudge forward 200ms per attempt
+                        cap.Set(VideoCaptureProperties.PosMsec, skipToMs);
+                        continue;
+                    }
                     break;
+                }
+                consecutiveReadFailures = 0;
 
                 using var flat = FlattenPipeline.Run(frame, mapX, mapY, transform);
                 // BMP, not PNG: near-zero encode overhead (a raw byte dump vs. real
@@ -93,7 +112,9 @@ public static class VideoProcessor
                 // reads them, so the larger disk footprint costs nothing that matters,
                 // and PNG encoding turned out to be a bigger share of export time than
                 // the video encoder itself.
-                Cv2.ImWrite(FramePath(tempDir, frameIdx), flat);
+                string framePath = FramePath(tempDir, frameIdx);
+                if (!Cv2.ImWrite(framePath, flat))
+                    throw new IOException($"Failed to write temp frame {frameIdx} to {framePath} (disk full? permissions?).");
                 timestampsMs.Add(ts);
 
                 frameIdx++;
@@ -102,6 +123,21 @@ public static class VideoProcessor
 
             if (frameIdx == 0)
                 throw new IOException($"No frames were read from: {inPath}");
+
+            // A large gap between how many frames we actually got and the source's own
+            // estimate is exactly what a silent early-termination bug looks like from
+            // the outside (a valid, non-empty export that's nonetheless missing the back
+            // half of the clip) - fail loudly with the actual numbers instead of quietly
+            // producing a short video, since cap.FrameCount can be somewhat imprecise
+            // but not usually off by this much.
+            if (total > 10 && frameIdx < total * 0.8)
+            {
+                throw new IOException(
+                    $"Only read {frameIdx} of an expected ~{total} frames from {inPath} " +
+                    "before the source stopped providing frames - the export would be missing " +
+                    "the rest of the clip. This may indicate a decode issue partway through the " +
+                    "source file.");
+            }
 
             string listPath = Path.Combine(tempDir, "concat.txt");
             WriteConcatList(listPath, tempDir, timestampsMs, frameIdx);
