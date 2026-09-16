@@ -161,7 +161,8 @@ public partial class MainWindow : System.Windows.Window
         SyncCalibrationControls();
 
         ExportButton.IsEnabled = true;
-        StatusText.Text = $"Loaded {(isVideo ? "video" : "image")}: {Path.GetFileName(dialog.FileName)}";
+        string fpsNote = isVideo ? $" (reported {_playbackFps:0.###} fps, {_playbackTotalFrames} frames)" : "";
+        StatusText.Text = $"Loaded {(isVideo ? "video" : "image")}: {Path.GetFileName(dialog.FileName)}{fpsNote}";
         OnParametersChanged();
     }
 
@@ -410,7 +411,10 @@ public partial class MainWindow : System.Windows.Window
         _playbackStopwatch.Restart();
         if (_audioPlayer != null)
         {
-            _audioPlayer.Position = TimeSpan.FromSeconds(_playbackStartFrame / _playbackFps);
+            // Use the capture's own reported time (PosMsec) rather than converting
+            // frame-index/fps ourselves - see PlaybackTimer_Tick for why that
+            // conversion is unreliable.
+            _audioPlayer.Position = TimeSpan.FromMilliseconds(_playbackCapture.Get(VideoCaptureProperties.PosMsec));
             _audioPlayer.Play();
         }
         _playbackTimer.Start();
@@ -430,29 +434,31 @@ public partial class MainWindow : System.Windows.Window
         if (_playbackCapture == null)
             return;
 
-        // Audio hardware timing is the one clock that's actually accurate in real
-        // time (the sound device paces it, not our code), so video slaves to
-        // wherever audio actually is rather than each being paced by its own
-        // independent clock - two independent clocks (a stopwatch here, MediaPlayer's
-        // internal clock for audio) drift apart from each other with nothing pulling
-        // them back together, which is exactly what "completely out of sync" was.
-        // Stopwatch pacing is only a fallback for when there's no audio player.
-        int targetFrame = _audioPlayer != null
-            ? (int)(_audioPlayer.Position.TotalSeconds * _playbackFps)
-            : _playbackStartFrame + (int)(_playbackStopwatch.Elapsed.TotalSeconds * _playbackFps);
-        int currentFrame = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
-        if (targetFrame <= currentFrame)
+        // Compare positions directly in time (milliseconds), not via a frame-count *
+        // fps conversion. capture.Fps is only ever an approximation of the real
+        // playback rate for compressed video - rounding (29.97 vs 30), variable frame
+        // rate footage, or a container that just reports it slightly wrong - and any
+        // error there doesn't stay constant, it compounds linearly the longer
+        // playback runs (which is exactly why the gap grew from ~5s to ~8s rather
+        // than staying put). OpenCV's own millisecond position sidesteps that
+        // entirely: no fps assumption is involved in the comparison at all.
+        double targetMs = _audioPlayer != null
+            ? _audioPlayer.Position.TotalMilliseconds
+            : _playbackStartFrame / _playbackFps * 1000.0 + _playbackStopwatch.Elapsed.TotalMilliseconds;
+        double currentMs = _playbackCapture.Get(VideoCaptureProperties.PosMsec);
+        double avGapSeconds = (targetMs - currentMs) / 1000.0;
+        if (targetMs <= currentMs)
             return; // not time for the next frame yet
 
-        // Only hard-seek when meaningfully behind (roughly a second's worth of
-        // frames), not for every tiny gap. Seeking compressed video means decoding
-        // forward from the nearest preceding keyframe, which can be expensive with
-        // the long keyframe intervals security footage commonly uses to save space -
-        // re-triggering that every single tick while still catching up made the lag
-        // worse, not better. A small gap just reads the next frame sequentially
-        // (cheap, no keyframe search) and catches up naturally over a few frames.
-        if (targetFrame - currentFrame > Math.Max(_playbackFps, 5))
-            _playbackCapture.Set(VideoCaptureProperties.PosFrames, targetFrame);
+        // Only hard-seek when meaningfully behind (about half a second), not for
+        // every tiny gap. Seeking compressed video means decoding forward from the
+        // nearest preceding keyframe, which can be expensive with the long keyframe
+        // intervals security footage commonly uses to save space - re-triggering
+        // that every single tick while still catching up compounds rather than
+        // recovers. A small gap just reads the next frame sequentially (cheap, no
+        // keyframe search) and catches up naturally over a few frames.
+        if (targetMs - currentMs > 500)
+            _playbackCapture.Set(VideoCaptureProperties.PosMsec, targetMs);
 
         var frame = new Mat();
         if (!_playbackCapture.Read(frame) || frame.Empty())
@@ -477,7 +483,7 @@ public partial class MainWindow : System.Windows.Window
         _suppressSeek = true;
         PositionSlider.Value = Math.Min(posFrames, PositionSlider.Maximum);
         _suppressSeek = false;
-        UpdateTimeText(posFrames);
+        UpdateTimeText(posFrames, avGapSeconds);
     }
 
     private void PositionSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -502,7 +508,7 @@ public partial class MainWindow : System.Windows.Window
             RenderPreviewFrame(_currentFrame);
             UpdateTimeText(frameIndex);
             if (_audioPlayer != null)
-                _audioPlayer.Position = TimeSpan.FromSeconds(frameIndex / _playbackFps);
+                _audioPlayer.Position = TimeSpan.FromMilliseconds(_playbackCapture.Get(VideoCaptureProperties.PosMsec));
         }
         else
         {
@@ -533,11 +539,12 @@ public partial class MainWindow : System.Windows.Window
         MuteIcon.Text = _isMuted || VolumeSlider.Value <= 0 ? "🔇" : "🔊";
     }
 
-    private void UpdateTimeText(int posFrames)
+    private void UpdateTimeText(int posFrames, double? avGapSeconds = null)
     {
         double cur = posFrames / _playbackFps;
         double total = _playbackTotalFrames / _playbackFps;
-        TimeText.Text = $"{FormatTime(cur)} / {FormatTime(total)}";
+        string gap = avGapSeconds.HasValue ? $"  (audio-video Δ {avGapSeconds.Value:+0.00;-0.00}s)" : "";
+        TimeText.Text = $"{FormatTime(cur)} / {FormatTime(total)}{gap}";
     }
 
     private static string FormatTime(double seconds)
