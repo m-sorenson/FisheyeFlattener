@@ -41,6 +41,20 @@ public static class VideoProcessor
 
         double fps = cap.Fps > 0 ? cap.Fps : 30.0;
         int total = cap.FrameCount;
+
+        // Prefer frameCount / actualDuration over the codec's reported average fps
+        // when possible: for real-world footage that reported value can be a rounded
+        // or otherwise imprecise approximation (e.g. 17.909), and writing the output
+        // at that rate makes its total length not quite match the original's audio
+        // track length - which is exactly what showed up as audio and video drifting
+        // apart across the length of an exported clip.
+        if (total > 0)
+        {
+            double? actualDuration = AudioMuxer.GetDurationSeconds(inPath);
+            if (actualDuration is > 0)
+                fps = total / actualDuration.Value;
+        }
+
         int outW = mapX.Cols, outH = mapX.Rows;
 
         int fourcc = VideoWriter.FourCC('m', 'p', '4', 'v');

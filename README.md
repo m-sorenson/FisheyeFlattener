@@ -82,6 +82,15 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    installed) as a second step to copy the original audio onto the result.
    No ffmpeg, or no audio track in the source → you still get a valid
    video, just without audio; the status bar says which happened.
+
+   The exported video's frame rate is computed as `frame count / actual
+   container duration` (via ffprobe) rather than trusted from the source
+   codec's reported average — for real-world footage that reported value
+   can be a rounded/imprecise approximation (confirmed against real
+   security footage: OpenCV reported 17.909 fps, verified with the wrong
+   value the output's total length silently didn't match its audio track's
+   length, causing a growing gap across the file). Falls back to the
+   reported value only if ffprobe isn't available.
 6. **Lens Calibration → Source correction**: flip the raw fisheye frame
    before dewarping. Use this if the camera itself is mounted upside-down
    or mirrored — toggling these automatically re-mirrors your Center X/Y so
