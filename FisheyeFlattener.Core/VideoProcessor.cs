@@ -27,8 +27,20 @@ public static class VideoProcessor
     /// Dewarps every frame of <paramref name="inPath"/> using the same map, writes to
     /// <paramref name="outPath"/>. <paramref name="cancelCb"/>, if given, is polled each
     /// frame; returning true stops early.
+    ///
+    /// Returns the list of (start, end) time ranges, in the *source* file's own
+    /// timeline (seconds), that the audio track should be trimmed down to match -
+    /// see <see cref="WriteConcatList"/>/<see cref="MaxFrameDurationSec"/> for why
+    /// this can differ from "the whole file": a real recording gap gets its held
+    /// frame's on-screen duration capped, which shortens the video's total length
+    /// relative to the source: muxing the *full* original audio back onto that
+    /// shorter video would leave everything after the gap out of sync by exactly
+    /// however much was trimmed off. Null means no trimming is needed (either the
+    /// constant-fps fallback path was used, which can't produce this map, or no gap
+    /// in the source was large enough to be capped) - the caller should mux the
+    /// whole original audio track unchanged.
     /// </summary>
-    public static void ProcessVideo(
+    public static List<(double Start, double End)>? ProcessVideo(
         string inPath,
         string outPath,
         Mat mapX,
@@ -49,12 +61,13 @@ public static class VideoProcessor
         // Needs ffmpeg (for the concat-demuxer assembly step); falls back to the
         // simpler constant-fps writer if it isn't available.
         if (AudioMuxer.IsFfmpegAvailable())
-            ProcessVideoPreservingTimestamps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
-        else
-            ProcessVideoConstantFps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
+            return ProcessVideoPreservingTimestamps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
+
+        ProcessVideoConstantFps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
+        return null;
     }
 
-    private static void ProcessVideoPreservingTimestamps(
+    private static List<(double Start, double End)> ProcessVideoPreservingTimestamps(
         string inPath,
         string outPath,
         Mat mapX,
@@ -139,9 +152,13 @@ public static class VideoProcessor
                     "source file.");
             }
 
+            double[] frameDurationsSec = ComputeFrameDurationsSec(timestampsMs, frameIdx);
+
             string listPath = Path.Combine(tempDir, "concat.txt");
-            WriteConcatList(listPath, tempDir, timestampsMs, frameIdx);
+            WriteConcatList(listPath, tempDir, frameDurationsSec, frameIdx);
             RunFfmpegConcat(listPath, outPath);
+
+            return BuildAudioKeepSegments(timestampsMs, frameDurationsSec, frameIdx);
         }
         finally
         {
@@ -151,27 +168,96 @@ public static class VideoProcessor
 
     private static string FramePath(string dir, int idx) => Path.Combine(dir, $"f{idx:D8}.bmp");
 
-    /// <summary>ffmpeg's concat demuxer format: each frame file followed by how long
-    /// (seconds) it should be displayed for, taken directly from the gap to the next
-    /// frame's real timestamp. The final entry has no duration line (demuxer quirk -
-    /// the last listed duration is ignored, so the last file is listed twice).</summary>
-    private static void WriteConcatList(string listPath, string tempDir, List<double> timestampsMs, int frameCount)
+    /// <summary>Motion-triggered recording can have a real, large gap between two
+    /// consecutive frames (confirmed on real footage: a 55-second gap where the
+    /// camera simply wasn't recording). Reproducing that literally means freezing on
+    /// a single frame for 55 seconds before the video continues - which is
+    /// indistinguishable from "the video stopped" unless you wait through the whole
+    /// freeze, and is exactly what looked like a truncated export. Cap how long any
+    /// one frame can be held for so a real recording pause doesn't read as a stall.</summary>
+    private const double MaxFrameDurationSec = 2.0;
+
+    /// <summary>Each frame's on-screen duration (seconds): the gap to the next
+    /// frame's real timestamp, capped at MaxFrameDurationSec (see above); the last
+    /// frame (no "next" to measure against) uses the file's overall average interval,
+    /// also capped. Shared by <see cref="WriteConcatList"/> (the video timeline) and
+    /// <see cref="BuildAudioKeepSegments"/> (the matching audio timeline) so the two
+    /// are guaranteed to sum to the same total - see BuildAudioKeepSegments.</summary>
+    private static double[] ComputeFrameDurationsSec(List<double> timestampsMs, int frameCount)
     {
         double avgIntervalSec = frameCount > 1
             ? (timestampsMs[^1] - timestampsMs[0]) / 1000.0 / (frameCount - 1)
             : 1.0 / 15.0;
 
+        var durations = new double[frameCount];
+        for (int i = 0; i < frameCount; i++)
+        {
+            double raw = i < frameCount - 1
+                ? Math.Max((timestampsMs[i + 1] - timestampsMs[i]) / 1000.0, 0.001)
+                : Math.Max(avgIntervalSec, 0.001);
+            durations[i] = Math.Min(raw, MaxFrameDurationSec);
+        }
+        return durations;
+    }
+
+    /// <summary>ffmpeg's concat demuxer format: each frame file followed by how long
+    /// (seconds) it should be displayed for. The final entry has no duration line
+    /// (demuxer quirk - the last listed duration is ignored, so the last file is
+    /// listed twice).</summary>
+    private static void WriteConcatList(string listPath, string tempDir, double[] frameDurationsSec, int frameCount)
+    {
         using var writer = new StreamWriter(listPath);
         for (int i = 0; i < frameCount; i++)
         {
-            double durationSec = i < frameCount - 1
-                ? Math.Max((timestampsMs[i + 1] - timestampsMs[i]) / 1000.0, 0.001)
-                : Math.Max(avgIntervalSec, 0.001);
             writer.WriteLine($"file '{Path.GetFileName(FramePath(tempDir, i))}'");
-            writer.WriteLine($"duration {durationSec.ToString("0.000000", CultureInfo.InvariantCulture)}");
+            writer.WriteLine($"duration {frameDurationsSec[i].ToString("0.000000", CultureInfo.InvariantCulture)}");
         }
         // Concat demuxer ignores the last file's duration line, so repeat it once more.
         writer.WriteLine($"file '{Path.GetFileName(FramePath(tempDir, frameCount - 1))}'");
+    }
+
+    /// <summary>
+    /// Mirrors the same capping <see cref="WriteConcatList"/> applies to the video
+    /// timeline, but expressed as which spans of the *source's* audio timeline to
+    /// keep: everything up to a capped gap plays normally (1:1 with the source), the
+    /// gap itself keeps only its first <see cref="MaxFrameDurationSec"/> of audio
+    /// (matching how long the held frame is actually shown for) with the rest
+    /// dropped, then the next span resumes from the real timestamp of the frame
+    /// right after the gap. Concatenating these spans back-to-back produces an audio
+    /// track whose total length matches the (now-shorter) capped video exactly -
+    /// walking the *same* per-frame duration values used for the video (rather than
+    /// independently re-deriving gap sizes/thresholds) guarantees the two totals
+    /// agree exactly rather than approximately, including the edge case where the
+    /// very last frame's own duration (an average, not a real gap - there's no "next"
+    /// frame to measure against) is itself large enough to be capped.
+    /// </summary>
+    private static List<(double Start, double End)> BuildAudioKeepSegments(
+        List<double> timestampsMs, double[] frameDurationsSec, int frameCount)
+    {
+        var segments = new List<(double Start, double End)>();
+        double segStartMs = timestampsMs[0];
+        double curEndMs = timestampsMs[0];
+
+        for (int i = 0; i < frameCount; i++)
+        {
+            curEndMs = timestampsMs[i] + frameDurationsSec[i] * 1000.0;
+
+            bool isLast = i == frameCount - 1;
+            if (!isLast)
+            {
+                double realNextMs = timestampsMs[i + 1];
+                bool wasCapped = curEndMs < realNextMs - 0.5; // small epsilon for float noise
+                if (wasCapped)
+                {
+                    segments.Add((segStartMs / 1000.0, curEndMs / 1000.0));
+                    segStartMs = realNextMs;
+                    curEndMs = realNextMs;
+                }
+            }
+        }
+
+        segments.Add((segStartMs / 1000.0, curEndMs / 1000.0));
+        return segments;
     }
 
     private static void RunFfmpegConcat(string listPath, string outPath)

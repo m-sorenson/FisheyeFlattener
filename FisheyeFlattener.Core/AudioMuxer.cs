@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace FisheyeFlattener.Core;
@@ -459,6 +462,96 @@ public static class AudioMuxer
         if (proc.ExitCode != 0 || !File.Exists(finalOutputPath))
         {
             LastSkipReason = $"ffmpeg failed to mux audio (exit {proc.ExitCode}): {Tail(stderrTask.Result, 500)}";
+            MoveToFinal(flattenedVideoPath, finalOutputPath);
+            return false;
+        }
+
+        File.Delete(flattenedVideoPath);
+        return true;
+    }
+
+    /// <summary>
+    /// Same as <see cref="MuxAudio(string,string,string)"/>, but for exports where
+    /// <see cref="VideoProcessor.ProcessVideo"/> had to cap one or more real recording
+    /// gaps (see <c>VideoProcessor.MaxFrameDurationSec</c>): the video's total length
+    /// is now shorter than the source's, so muxing the source's full, untouched audio
+    /// track back on would leave everything after the first capped gap out of sync by
+    /// exactly however much video time was trimmed off. <paramref name="keepSegments"/>
+    /// (in the *source's* own timeline, seconds) are the exact spans
+    /// <c>VideoProcessor</c> kept when it built the capped video, so trimming audio to
+    /// just those spans and concatenating them reproduces the same compression on the
+    /// audio side, keeping the two in sync throughout - not just up to the first gap.
+    /// Falls back to the plain whole-track mux when there's nothing to compensate for
+    /// (null, or a single segment - i.e. no gap was actually capped).
+    /// </summary>
+    public static bool MuxAudio(
+        string flattenedVideoPath,
+        string originalSourcePath,
+        string finalOutputPath,
+        IReadOnlyList<(double Start, double End)>? keepSegments)
+    {
+        if (keepSegments == null || keepSegments.Count <= 1)
+            return MuxAudio(flattenedVideoPath, originalSourcePath, finalOutputPath);
+
+        LastSkipReason = null;
+        ResolveTools();
+
+        if (_ffmpegPath == null)
+        {
+            LastSkipReason = "ffmpeg was not found (checked PATH and the winget install folder).";
+            MoveToFinal(flattenedVideoPath, finalOutputPath);
+            return false;
+        }
+
+        if (!SourceHasAudio(originalSourcePath, out string probeErr))
+        {
+            LastSkipReason = string.IsNullOrWhiteSpace(probeErr)
+                ? "No audio track was found in the source file."
+                : $"Could not read audio info from the source file: {Tail(probeErr, 300)}";
+            MoveToFinal(flattenedVideoPath, finalOutputPath);
+            return false;
+        }
+
+        var filter = new StringBuilder();
+        for (int i = 0; i < keepSegments.Count; i++)
+        {
+            var (start, end) = keepSegments[i];
+            filter.Append(
+                $"[1:a]atrim=start={start.ToString("0.000000", CultureInfo.InvariantCulture)}:" +
+                $"end={end.ToString("0.000000", CultureInfo.InvariantCulture)},asetpts=PTS-STARTPTS[a{i}];");
+        }
+        for (int i = 0; i < keepSegments.Count; i++)
+            filter.Append($"[a{i}]");
+        filter.Append($"concat=n={keepSegments.Count}:v=0:a=1[aout]");
+
+        var psi = new ProcessStartInfo(_ffmpegPath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in new[]
+                 {
+                     "-y", "-i", flattenedVideoPath, "-i", originalSourcePath,
+                     "-filter_complex", filter.ToString(),
+                     "-map", "0:v:0", "-map", "[aout]",
+                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
+                     finalOutputPath,
+                 })
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
+        using var proc = Process.Start(psi);
+        var stdoutTask = proc!.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        proc.WaitForExit();
+        Task.WaitAll(stdoutTask, stderrTask);
+
+        if (proc.ExitCode != 0 || !File.Exists(finalOutputPath))
+        {
+            LastSkipReason = $"ffmpeg failed to mux time-compressed audio (exit {proc.ExitCode}): {Tail(stderrTask.Result, 500)}";
             MoveToFinal(flattenedVideoPath, finalOutputPath);
             return false;
         }

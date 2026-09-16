@@ -598,7 +598,7 @@ public partial class MainWindow : System.Windows.Window
             {
                 (bool includedAudio, double? videoDur, double? audioDur) = await Task.Run(() =>
                 {
-                    VideoProcessor.ProcessVideo(inPath, tempVideoOnlyPath, mapX, mapY, transform, (done, total) =>
+                    var keepSegments = VideoProcessor.ProcessVideo(inPath, tempVideoOnlyPath, mapX, mapY, transform, (done, total) =>
                     {
                         Dispatcher.Invoke(() =>
                         {
@@ -609,7 +609,7 @@ public partial class MainWindow : System.Windows.Window
                     });
 
                     Dispatcher.Invoke(() => StatusText.Text = "Merging audio...");
-                    bool audioOk = AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath);
+                    bool audioOk = AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath, keepSegments);
                     var (v, a) = AudioMuxer.GetStreamDurations(outPath);
                     return (audioOk, v, a);
                 });
