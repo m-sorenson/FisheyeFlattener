@@ -115,10 +115,22 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    read every tick and used directly to pick which frame to show) rather
    than the two being paced by independent clocks — two clocks that both
    target "real time" on their own still drift apart from each other with
-   nothing pulling them back together, which is what caused the first
+   nothing pulling them back together, which is what caused an earlier
    version of this to go noticeably out of sync. Audio hardware timing is
    the one clock actually paced by something external and accurate (the
    sound device), so it's the one video should follow.
+
+   Two more things had to be fixed to make that actually hold up: each
+   preview frame used to allocate a brand-new `WriteableBitmap` (enough
+   overhead on real footage to fall behind the video's own frame rate),
+   and the "catch up when behind" logic used to re-seek on every single
+   tick even for a 2-frame gap — seeking compressed video means decoding
+   forward from the nearest keyframe, which security footage's typically
+   long keyframe intervals can make expensive, and redoing that every tick
+   while still behind made the lag worse instead of better. Frames are now
+   written into a reused bitmap in place, and a hard seek only happens
+   when at least ~1 second behind; smaller gaps just read forward
+   sequentially and catch up on their own.
 
 Note: a 360° panorama-unwrap mode existed in an earlier version and is
 still in `FisheyeFlattener.Core` (`DewarpMath.BuildPanoramaMap`) but isn't

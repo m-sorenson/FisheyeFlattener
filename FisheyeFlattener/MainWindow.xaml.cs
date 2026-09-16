@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using FisheyeFlattener.Core;
 using Microsoft.Win32;
@@ -37,6 +38,12 @@ public partial class MainWindow : System.Windows.Window
 
     private Mat? _cachedMapX;
     private Mat? _cachedMapY;
+
+    // Reused across frames during playback instead of allocating a new WriteableBitmap
+    // every frame (what ToBitmapSource() does) - that allocation was a meaningful chunk
+    // of the per-frame cost, and playback needs to keep up with the video's own frame
+    // rate or it falls further behind every tick.
+    private WriteableBitmap? _previewBitmap;
 
     // Drag-to-look
     private bool _isDragging;
@@ -437,10 +444,14 @@ public partial class MainWindow : System.Windows.Window
         if (targetFrame <= currentFrame)
             return; // not time for the next frame yet
 
-        // If we've fallen behind, jump straight to the target frame instead of
-        // decoding every intermediate one, so playback catches back up to real time
-        // rather than staying permanently behind.
-        if (targetFrame > currentFrame + 1)
+        // Only hard-seek when meaningfully behind (roughly a second's worth of
+        // frames), not for every tiny gap. Seeking compressed video means decoding
+        // forward from the nearest preceding keyframe, which can be expensive with
+        // the long keyframe intervals security footage commonly uses to save space -
+        // re-triggering that every single tick while still catching up made the lag
+        // worse, not better. A small gap just reads the next frame sequentially
+        // (cheap, no keyframe search) and catches up naturally over a few frames.
+        if (targetFrame - currentFrame > Math.Max(_playbackFps, 5))
             _playbackCapture.Set(VideoCaptureProperties.PosFrames, targetFrame);
 
         var frame = new Mat();
@@ -719,6 +730,23 @@ public partial class MainWindow : System.Windows.Window
         EnsureCachedMap();
         var transform = CurrentTransform();
         using var flat = FlattenPipeline.Run(frame, _cachedMapX!, _cachedMapY!, transform);
-        PreviewImage.Source = flat.ToBitmapSource();
+        WritePreviewBitmap(flat);
+    }
+
+    /// <summary>Copies a BGR Mat straight into a reused WriteableBitmap's back buffer
+    /// instead of allocating (and having WPF register/dispose) a brand-new bitmap every
+    /// single frame, which is wasteful enough to matter for keeping playback in sync
+    /// with real time.</summary>
+    private void WritePreviewBitmap(Mat bgr)
+    {
+        int w = bgr.Cols, h = bgr.Rows;
+        if (_previewBitmap == null || _previewBitmap.PixelWidth != w || _previewBitmap.PixelHeight != h)
+        {
+            _previewBitmap = new WriteableBitmap(w, h, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null);
+            PreviewImage.Source = _previewBitmap;
+        }
+
+        int stride = (int)bgr.Step();
+        _previewBitmap.WritePixels(new Int32Rect(0, 0, w, h), bgr.Data, stride * h, stride);
     }
 }
