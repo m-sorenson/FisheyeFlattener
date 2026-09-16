@@ -112,25 +112,27 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    Windows Media Foundation) playing the source file's audio track,
    because OpenCV — used for the video frames — has no audio output path
    at all. Video is slaved to wherever audio actually is (its position is
-   read every tick and used directly to pick which frame to show) rather
-   than the two being paced by independent clocks — two clocks that both
-   target "real time" on their own still drift apart from each other with
-   nothing pulling them back together, which is what caused an earlier
-   version of this to go noticeably out of sync. Audio hardware timing is
-   the one clock actually paced by something external and accurate (the
-   sound device), so it's the one video should follow.
+   read every tick and used directly to pick which frame to show), rather
+   than each being paced by an independent clock that both merely *target*
+   real time — two such clocks drift apart from each other with nothing
+   pulling them back together. Audio hardware timing is the one clock
+   actually paced by something external and accurate (the sound device),
+   so it's the one video follows.
 
-   Two more things had to be fixed to make that actually hold up: each
-   preview frame used to allocate a brand-new `WriteableBitmap` (enough
-   overhead on real footage to fall behind the video's own frame rate),
-   and the "catch up when behind" logic used to re-seek on every single
-   tick even for a 2-frame gap — seeking compressed video means decoding
-   forward from the nearest keyframe, which security footage's typically
-   long keyframe intervals can make expensive, and redoing that every tick
-   while still behind made the lag worse instead of better. Frames are now
-   written into a reused bitmap in place, and a hard seek only happens
-   when at least ~1 second behind; smaller gaps just read forward
-   sequentially and catch up on their own.
+   That sync comparison is done entirely in **time** (OpenCV's own
+   millisecond position), never by converting through the file's reported
+   FPS. Security camera exports often report an averaged, non-round FPS
+   (e.g. 17.909) that doesn't exactly match true frame timing; using it to
+   convert "audio seconds elapsed" into "target video frame" compounds a
+   small error linearly the longer playback runs, which showed up as a
+   gap that kept growing rather than a fixed offset. Frames are also
+   written into a single reused `WriteableBitmap` in place rather than
+   allocating a new one every frame, and the "catch up when behind" logic
+   only hard-seeks once at least ~half a second behind — smaller gaps just
+   read forward sequentially, since seeking compressed video means
+   decoding forward from the nearest keyframe, which security footage's
+   typically long keyframe intervals can make expensive enough to matter
+   if triggered on every tick.
 
 Note: a 360° panorama-unwrap mode existed in an earlier version and is
 still in `FisheyeFlattener.Core` (`DewarpMath.BuildPanoramaMap`) but isn't
