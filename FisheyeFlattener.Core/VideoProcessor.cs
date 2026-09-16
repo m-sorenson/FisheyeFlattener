@@ -149,7 +149,13 @@ public static class VideoProcessor
         };
         foreach (var arg in new[]
                  {
+                     // libx264 with yuv420p requires even width/height (chroma planes are
+                     // subsampled 2x in both directions); the app lets output width/height
+                     // be set to any value including odd ones, so force-round down to even
+                     // rather than fail - "Could not open encoder... Invalid argument" is
+                     // exactly what libx264 does for an odd dimension.
                      "-y", "-f", "concat", "-safe", "0", "-i", listPath,
+                     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
                      "-fps_mode", "vfr", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-crf", "18",
                      outPath,
                  })
