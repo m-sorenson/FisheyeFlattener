@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
@@ -54,6 +55,8 @@ public partial class MainWindow : System.Windows.Window
     private bool _suppressSeek;
     private double _playbackFps = 30.0;
     private int _playbackTotalFrames;
+    private readonly Stopwatch _playbackStopwatch = new();
+    private int _playbackStartFrame;
 
     // Field initializer: NumericSlider controls fire ValueChanged as soon as XAML
     // assigns their initial Value during InitializeComponent(), so this must exist
@@ -347,7 +350,12 @@ public partial class MainWindow : System.Windows.Window
         _playbackFps = capture.Fps > 0 ? capture.Fps : 30.0;
         _playbackTotalFrames = capture.FrameCount;
 
-        _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.0 / _playbackFps) };
+        // Ticks poll frequently; PlaybackTimer_Tick paces itself against a stopwatch
+        // rather than assuming each tick completes within 1/fps - real footage takes
+        // longer to remap+render per frame than that interval allows, so a naive
+        // fixed-interval "read one frame per tick" timer falls behind and plays back
+        // slower than real time.
+        _playbackTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
         _playbackTimer.Tick += PlaybackTimer_Tick;
 
         _suppressSeek = true;
@@ -379,6 +387,8 @@ public partial class MainWindow : System.Windows.Window
         EnsureCachedMap();
         _isPlaying = true;
         PlayPauseButton.Content = "Pause";
+        _playbackStartFrame = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
+        _playbackStopwatch.Restart();
         _playbackTimer.Start();
     }
 
@@ -387,12 +397,27 @@ public partial class MainWindow : System.Windows.Window
         _isPlaying = false;
         PlayPauseButton.Content = "Play";
         _playbackTimer?.Stop();
+        _playbackStopwatch.Stop();
     }
 
     private void PlaybackTimer_Tick(object? sender, EventArgs e)
     {
         if (_playbackCapture == null)
             return;
+
+        // How many frames SHOULD have played by now, based on wall-clock time, not
+        // how many ticks have fired - this is what keeps speed correct even when
+        // per-frame remap+render is slower than the video's own frame interval.
+        int targetFrame = _playbackStartFrame + (int)(_playbackStopwatch.Elapsed.TotalSeconds * _playbackFps);
+        int currentFrame = (int)_playbackCapture.Get(VideoCaptureProperties.PosFrames);
+        if (targetFrame <= currentFrame)
+            return; // not time for the next frame yet
+
+        // If we've fallen behind, jump straight to the target frame instead of
+        // decoding every intermediate one, so playback catches back up to real time
+        // rather than staying permanently behind.
+        if (targetFrame > currentFrame + 1)
+            _playbackCapture.Set(VideoCaptureProperties.PosFrames, targetFrame);
 
         var frame = new Mat();
         if (!_playbackCapture.Read(frame) || frame.Empty())
@@ -514,7 +539,9 @@ public partial class MainWindow : System.Windows.Window
                     Dispatcher.Invoke(() => StatusText.Text = "Merging audio...");
                     return AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath);
                 });
-                StatusText.Text = includedAudio ? "Video export complete." : "Video export complete (no audio track found/muxed).";
+                StatusText.Text = includedAudio
+                    ? "Video export complete."
+                    : $"Video export complete - no audio: {AudioMuxer.LastSkipReason}";
             }
             catch (Exception ex)
             {

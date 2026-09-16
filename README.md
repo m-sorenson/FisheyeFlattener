@@ -102,7 +102,13 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
    result live (not the raw fisheye), using whatever view you've dragged to
    and whatever calibration is set. Dragging the scrub bar pauses and
    seeks. Adjusting the view while playing updates the dewarp map for the
-   next frame without interrupting playback.
+   next frame without interrupting playback. Playback paces itself against
+   a stopwatch and seeks ahead if it falls behind, so speed stays correct
+   even when a frame is expensive to render (large resolution, etc.) —
+   without this it would drift slower than real time the same way the
+   naive "one frame per timer tick" approach did. There's currently no
+   audio during in-app playback (only export includes audio) — the preview
+   only steps video frames via OpenCV, which has no audio output path.
 
 Note: a 360° panorama-unwrap mode existed in an earlier version and is
 still in `FisheyeFlattener.Core` (`DewarpMath.BuildPanoramaMap`) but isn't
