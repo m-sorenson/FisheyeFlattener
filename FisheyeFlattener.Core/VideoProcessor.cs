@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using OpenCvSharp;
 
@@ -41,6 +42,13 @@ public static class VideoProcessor
     /// constant-fps fallback path was used, which can't produce this map, or no gap
     /// in the source was large enough to be collapsed) - the caller should mux the
     /// whole original audio track unchanged.
+    ///
+    /// <paramref name="progressCb"/> reports the frame-reading/flattening stage
+    /// (reading each source frame, remapping it, writing it to a temp file);
+    /// <paramref name="encodeProgressCb"/> separately reports the ffmpeg step after
+    /// that which actually encodes those temp frames into the output video - a real
+    /// encode pass over every frame, not instant, and previously gave no progress
+    /// feedback at all (parsed from ffmpeg's own <c>-progress</c> output).
     /// </summary>
     public static List<(double Start, double End)>? ProcessVideo(
         string inPath,
@@ -49,7 +57,8 @@ public static class VideoProcessor
         Mat mapY,
         TransformOptions? transform = null,
         Action<int, int>? progressCb = null,
-        Func<bool>? cancelCb = null)
+        Func<bool>? cancelCb = null,
+        Action<int, int>? encodeProgressCb = null)
     {
         transform ??= TransformOptions.None;
 
@@ -63,7 +72,7 @@ public static class VideoProcessor
         // Needs ffmpeg (for the concat-demuxer assembly step); falls back to the
         // simpler constant-fps writer if it isn't available.
         if (AudioMuxer.IsFfmpegAvailable())
-            return ProcessVideoPreservingTimestamps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
+            return ProcessVideoPreservingTimestamps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb, encodeProgressCb);
 
         ProcessVideoConstantFps(inPath, outPath, mapX, mapY, transform, progressCb, cancelCb);
         return null;
@@ -76,7 +85,8 @@ public static class VideoProcessor
         Mat mapY,
         TransformOptions transform,
         Action<int, int>? progressCb,
-        Func<bool>? cancelCb)
+        Func<bool>? cancelCb,
+        Action<int, int>? encodeProgressCb)
     {
         using var cap = new VideoCapture(inPath);
         if (!cap.IsOpened())
@@ -162,7 +172,7 @@ public static class VideoProcessor
 
             string listPath = Path.Combine(tempDir, "concat.txt");
             WriteConcatList(listPath, tempDir, frameDurationsSec, frameIdx);
-            RunFfmpegConcat(listPath, outPath);
+            RunFfmpegConcat(listPath, outPath, frameIdx, encodeProgressCb);
 
             return BuildAudioKeepSegments(timestampsMs, frameDurationsSec, frameIdx);
         }
@@ -280,12 +290,12 @@ public static class VideoProcessor
         return segments;
     }
 
-    private static void RunFfmpegConcat(string listPath, string outPath)
+    private static void RunFfmpegConcat(string listPath, string outPath, int frameCount, Action<int, int>? encodeProgressCb)
     {
         string encoder = AudioMuxer.PreferredVideoEncoder;
         try
         {
-            RunFfmpegConcatWithEncoder(listPath, outPath, encoder);
+            RunFfmpegConcatWithEncoder(listPath, outPath, encoder, frameCount, encodeProgressCb);
         }
         catch (IOException) when (encoder != "libx264")
         {
@@ -293,11 +303,12 @@ public static class VideoProcessor
             // real export anyway (an unsupported resolution, a driver edge case,
             // VRAM pressure, etc.) - fall back to software rather than losing the
             // whole export over it.
-            RunFfmpegConcatWithEncoder(listPath, outPath, "libx264");
+            RunFfmpegConcatWithEncoder(listPath, outPath, "libx264", frameCount, encodeProgressCb);
         }
     }
 
-    private static void RunFfmpegConcatWithEncoder(string listPath, string outPath, string encoder)
+    private static void RunFfmpegConcatWithEncoder(
+        string listPath, string outPath, string encoder, int frameCount, Action<int, int>? encodeProgressCb)
     {
         string? ffmpeg = AudioMuxer.FfmpegPath;
         if (ffmpeg == null)
@@ -310,7 +321,7 @@ public static class VideoProcessor
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        var args = new System.Collections.Generic.List<string>
+        var args = new List<string>
         {
             "-y", "-f", "concat", "-safe", "0", "-i", listPath,
             // libx264 with yuv420p requires even width/height (chroma planes are
@@ -323,19 +334,36 @@ public static class VideoProcessor
             "-fps_mode", "vfr", "-pix_fmt", "yuv420p", "-c:v", encoder,
         };
         args.AddRange(AudioMuxer.EncoderQualityArgs(encoder));
+        // Machine-readable progress ("frame=123\n...\nprogress=continue", one block per
+        // periodic update) on stdout, separate from the human-readable stats ffmpeg
+        // still writes to stderr - this step is a real encode pass over every frame
+        // (not instant), and previously reported nothing at all until it finished,
+        // which looked like the export had silently stalled.
+        args.Add("-progress");
+        args.Add("pipe:1");
         args.Add(outPath);
         foreach (var arg in args)
             psi.ArgumentList.Add(arg);
 
         using var proc = Process.Start(psi);
-        var stdoutTask = proc!.StandardOutput.ReadToEndAsync();
-        var stderrTask = proc.StandardError.ReadToEndAsync();
+        var stderrBuilder = new StringBuilder();
+        proc!.ErrorDataReceived += (_, e) => { if (e.Data != null) stderrBuilder.AppendLine(e.Data); };
+        proc.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data != null && e.Data.StartsWith("frame=", StringComparison.Ordinal)
+                && int.TryParse(e.Data.AsSpan("frame=".Length), out int frame))
+            {
+                encodeProgressCb?.Invoke(Math.Min(frame, frameCount), frameCount);
+            }
+        };
+        proc.BeginOutputReadLine();
+        proc.BeginErrorReadLine();
         proc.WaitForExit();
-        Task.WaitAll(stdoutTask, stderrTask);
 
         if (proc.ExitCode != 0 || !File.Exists(outPath))
         {
-            string tail = stderrTask.Result.Length <= 800 ? stderrTask.Result : stderrTask.Result[^800..];
+            string all = stderrBuilder.ToString();
+            string tail = all.Length <= 800 ? all : all[^800..];
             throw new IOException($"ffmpeg ({encoder}) failed to assemble the video (exit {proc.ExitCode}): {tail.Trim()}");
         }
     }

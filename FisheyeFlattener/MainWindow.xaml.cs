@@ -596,27 +596,46 @@ public partial class MainWindow : System.Windows.Window
             var cts = new CancellationTokenSource();
             var progressWindow = new ExportProgressWindow { Owner = this, Title = "Exporting video" };
             progressWindow.CancelRequested += (_, _) => cts.Cancel();
-            progressWindow.UpdateProgress(0, "Exporting video...");
+            progressWindow.UpdateProgress(0, 0, "Reading & flattening frames...");
             progressWindow.Show();
 
             try
             {
                 (bool includedAudio, double? videoDur, double? audioDur) = await Task.Run(() =>
                 {
+                    // Reading/flattening frames and the ffmpeg encode pass that follows
+                    // are usually the two big costs (audio muxing is comparatively
+                    // quick); these weights are only an approximation - the true split
+                    // varies by resolution/encoder/hardware - so the overall bar moves
+                    // smoothly across stages rather than claiming precision it doesn't
+                    // have.
+                    const double readWeightPct = 55.0;
+                    const double encodeWeightPct = 35.0;
+                    // remaining ~10% covers audio muxing (indeterminate, see below).
+
                     var keepSegments = VideoProcessor.ProcessVideo(
                         inPath, tempVideoOnlyPath, mapX, mapY, transform,
-                        (done, total) =>
+                        progressCb: (done, total) =>
                         {
-                            double pct = total > 0 ? 100.0 * done / total : 0;
-                            progressWindow.UpdateProgress(pct, $"Exporting video... frame {done}/{(total > 0 ? total.ToString() : "?")}");
+                            double stagePct = total > 0 ? 100.0 * done / total : 0;
+                            double overallPct = stagePct * readWeightPct / 100.0;
+                            progressWindow.UpdateProgress(overallPct, stagePct,
+                                $"Reading & flattening frames... {done}/{(total > 0 ? total.ToString() : "?")}");
                         },
-                        () => cts.Token.IsCancellationRequested);
+                        cancelCb: () => cts.Token.IsCancellationRequested,
+                        encodeProgressCb: (done, total) =>
+                        {
+                            double stagePct = total > 0 ? 100.0 * done / total : 0;
+                            double overallPct = readWeightPct + stagePct * encodeWeightPct / 100.0;
+                            progressWindow.UpdateProgress(overallPct, stagePct,
+                                $"Encoding video... frame {done}/{(total > 0 ? total.ToString() : "?")}");
+                        });
 
                     // Cancellation only stops the frame-by-frame loop above - the ffmpeg
                     // mux step that follows runs to completion once started, so a click
                     // here wouldn't do anything.
                     progressWindow.DisableCancel();
-                    progressWindow.SetIndeterminate("Merging audio...");
+                    progressWindow.SetStageIndeterminate(readWeightPct + encodeWeightPct, "Merging audio...");
                     bool audioOk = AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath, keepSegments);
                     var (v, a) = AudioMuxer.GetStreamDurations(outPath);
                     return (audioOk, v, a);

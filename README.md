@@ -75,14 +75,32 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 5. The preview updates live as you drag or adjust sliders (debounced
    ~60ms). Hit **Export Flattened...** to write the *current view* as a
    full-resolution image, or process an entire video through that same
-   view. For video, a separate progress popup tracks frame-by-frame
-   export progress with a **Cancel** button (video processing runs on a
-   background thread so the main window stays responsive and usable while
-   it's up), then switches to an **Open Export Location** button once
-   done — clicking it opens Explorer with the exported file selected.
-   Cancel only works during the frame-processing phase; once that's done
-   and the ffmpeg audio-mux step starts (usually quick), the button
-   disables itself rather than accept a click that can't do anything.
+   view. For video, a separate progress popup (sized to fit its own
+   content rather than a guessed fixed height, so its Cancel button can't
+   end up clipped off the bottom) tracks export progress with two bars:
+   an overall bar spanning the whole export, and a second bar for
+   whichever stage is currently running - reading/flattening frames,
+   then the ffmpeg step that encodes those frames into the final video,
+   then (indeterminate, no per-item progress to report) the audio mux.
+   That middle stage - ffmpeg actually encoding every frame - previously
+   reported nothing at all once frame reading hit 100%, which looked
+   like the export had silently stalled for however long that encode
+   took; it's now parsed live from ffmpeg's own `-progress` output, the
+   same way frame-reading progress already was. The overall bar's
+   per-stage weighting (currently reading 55% / encoding 35% / muxing
+   10%) is an approximation, not a measured split - the true ratio
+   depends on resolution, encoder, and hardware - chosen so the bar
+   moves smoothly across stages rather than claiming precision it
+   doesn't have.
+
+   **Cancel** works during the frame-processing phase (video processing
+   runs on a background thread so the main window stays responsive and
+   usable while it's up), then switches to an **Open Export Location**
+   button once done — clicking it opens Explorer with the exported file
+   selected. Cancel only works during frame processing; once that's done
+   and the ffmpeg encode/mux steps start, the button disables itself
+   rather than accept a click that can't do anything (cancelling there
+   would mean killing an ffmpeg process mid-write, not implemented).
    Cancelling (or a failure before the mux step) cleans up the
    intermediate video-only temp file rather than leaving it behind.
    Video export includes the original audio track — OpenCV's

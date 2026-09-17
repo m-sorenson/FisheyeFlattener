@@ -6,9 +6,14 @@ namespace FisheyeFlattener;
 
 /// <summary>Non-modal export progress popup (owned by MainWindow, shown via Show() so
 /// the caller's async export Task keeps running while it's up). Every mutator marshals
-/// onto the UI thread itself so background-thread callers (the export Task.Run body)
-/// can call them directly without the caller having to wrap each call in
-/// Dispatcher.Invoke.</summary>
+/// onto the UI thread itself so background-thread callers (the export Task.Run body,
+/// and ffmpeg's own async stdout-line callback) can call them directly without the
+/// caller having to wrap each call in Dispatcher.Invoke.
+///
+/// Two bars: "Overall progress" is a weighted combination across every export stage
+/// (frame reading, ffmpeg encoding, audio muxing - see MainWindow's stage weights),
+/// so it doesn't jump backwards or stall between stages; the second bar is the
+/// current stage's own detailed progress (e.g. "Encoding video: frame 800/2444").</summary>
 public partial class ExportProgressWindow : Window
 {
     public event EventHandler? CancelRequested;
@@ -20,24 +25,29 @@ public partial class ExportProgressWindow : Window
         InitializeComponent();
     }
 
-    public void UpdateProgress(double percent, string status)
+    public void UpdateProgress(double overallPercent, double stagePercent, string status)
     {
         Dispatcher.Invoke(() =>
         {
-            ProgressBarControl.IsIndeterminate = false;
-            ProgressBarControl.Value = Math.Clamp(percent, 0, 100);
-            StatusTextBlock.Text = status;
+            OverallProgressBar.IsIndeterminate = false;
+            OverallProgressBar.Value = Math.Clamp(overallPercent, 0, 100);
+            StageProgressBar.IsIndeterminate = false;
+            StageProgressBar.Value = Math.Clamp(stagePercent, 0, 100);
+            StageTextBlock.Text = status;
         });
     }
 
-    /// <summary>For steps with no per-item progress to report (e.g. the ffmpeg audio
-    /// mux, which runs to completion in one call).</summary>
-    public void SetIndeterminate(string status)
+    /// <summary>For a stage with no per-item progress to report (currently: the
+    /// ffmpeg audio mux, which runs to completion in one call) - the overall bar still
+    /// holds a fixed, correct position while the stage bar animates indeterminately.</summary>
+    public void SetStageIndeterminate(double overallPercent, string status)
     {
         Dispatcher.Invoke(() =>
         {
-            ProgressBarControl.IsIndeterminate = true;
-            StatusTextBlock.Text = status;
+            OverallProgressBar.IsIndeterminate = false;
+            OverallProgressBar.Value = Math.Clamp(overallPercent, 0, 100);
+            StageProgressBar.IsIndeterminate = true;
+            StageTextBlock.Text = status;
         });
     }
 
@@ -54,9 +64,11 @@ public partial class ExportProgressWindow : Window
         Dispatcher.Invoke(() =>
         {
             Title = "Export complete";
-            ProgressBarControl.IsIndeterminate = false;
-            ProgressBarControl.Value = 100;
-            StatusTextBlock.Text = message;
+            OverallProgressBar.IsIndeterminate = false;
+            OverallProgressBar.Value = 100;
+            StageProgressBar.IsIndeterminate = false;
+            StageProgressBar.Value = 100;
+            StageTextBlock.Text = message;
             CancelButton.Visibility = Visibility.Collapsed;
             _revealPath = revealPath;
             OpenLocationButton.Visibility = revealPath != null ? Visibility.Visible : Visibility.Collapsed;
@@ -69,7 +81,9 @@ public partial class ExportProgressWindow : Window
         Dispatcher.Invoke(() =>
         {
             Title = "Export failed";
-            StatusTextBlock.Text = message;
+            OverallProgressBar.IsIndeterminate = false;
+            StageProgressBar.IsIndeterminate = false;
+            StageTextBlock.Text = message;
             CancelButton.Visibility = Visibility.Collapsed;
             OpenLocationButton.Visibility = Visibility.Collapsed;
             CloseButton.Visibility = Visibility.Visible;
@@ -81,7 +95,9 @@ public partial class ExportProgressWindow : Window
         Dispatcher.Invoke(() =>
         {
             Title = "Export cancelled";
-            StatusTextBlock.Text = "Export cancelled.";
+            OverallProgressBar.IsIndeterminate = false;
+            StageProgressBar.IsIndeterminate = false;
+            StageTextBlock.Text = "Export cancelled.";
             CancelButton.Visibility = Visibility.Collapsed;
             OpenLocationButton.Visibility = Visibility.Collapsed;
             CloseButton.Visibility = Visibility.Visible;
@@ -91,7 +107,7 @@ public partial class ExportProgressWindow : Window
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
         CancelButton.IsEnabled = false;
-        StatusTextBlock.Text = "Cancelling...";
+        StageTextBlock.Text = "Cancelling...";
         CancelRequested?.Invoke(this, EventArgs.Empty);
     }
 
