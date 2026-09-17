@@ -36,6 +36,36 @@ display-forwarding involved. Same dewarp math, ported to C#.
   only needed for audio in exported video; without it, video export still
   works, just silent
 
+### NuGet package dependencies
+
+`FisheyeFlattener.Core` and `FisheyeFlattener`:
+- **OpenCvSharp4** — the .NET bindings for OpenCV; all of the actual
+  image/video decoding, remapping (`Cv2.Remap`), and encoding used by
+  `DewarpMath`, `Calibration`, `ImageProcessor`, `VideoProcessor`, and
+  `Transform`.
+- **OpenCvSharp4.runtime.win** — the native OpenCV binaries for Windows
+  that OpenCvSharp4's managed bindings call into. Without this the
+  managed package alone can't do anything (no native implementation to
+  bind to).
+- **OpenCvSharp4.WpfExtensions** — used only in `MainWindow.xaml.cs`,
+  for converting an OpenCV `Mat` to a WPF-displayable `BitmapSource`
+  (the live preview image).
+
+`FisheyeFlattener.Tests` (dev-only — never shipped in the built app):
+- **xunit** / **xunit.runner.visualstudio** — the test framework and
+  its VSTest/`dotnet test` runner integration.
+- **Microsoft.NET.Test.Sdk** — the MSBuild SDK that makes a project a
+  runnable test project at all.
+- **coverlet.collector** — code coverage collection during `dotnet
+  test` (not currently wired into any CI/reporting step, just
+  available if needed).
+
+All three projects are checked against known-vulnerability advisories
+via `dotnet list package --vulnerable` as of the last security review
+(see **Security posture** below) - clean as of that check, but that's a
+point-in-time result, not a standing guarantee; re-run it after bumping
+any package.
+
 ## Build & run
 
 ```powershell
