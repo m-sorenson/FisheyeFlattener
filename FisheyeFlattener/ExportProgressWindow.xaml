@@ -26,8 +26,12 @@
 
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="CancelButton" Content="Cancel" Padding="12,5" Click="CancelButton_Click"/>
-            <Button x:Name="OpenLocationButton" Content="Open Export Location" Padding="12,5" Margin="8,0,0,0"
-                    Visibility="Collapsed" Click="OpenLocationButton_Click"/>
+            <Button x:Name="OpenLocationButton" Padding="0" Width="36" Height="32" Margin="8,0,0,0"
+                    ToolTip="Open Export Location"
+                    Visibility="Collapsed" Click="OpenLocationButton_Click">
+                <TextBlock FontFamily="Segoe MDL2 Assets" Text="&#xED43;" FontSize="16"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Button>
             <Button x:Name="CloseButton" Content="Close" Padding="12,5" Margin="8,0,0,0"
                     Visibility="Collapsed" Click="CloseButton_Click"/>
         </StackPanel>
