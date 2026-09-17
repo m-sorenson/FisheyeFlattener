@@ -35,6 +35,9 @@ display-forwarding involved. Same dewarp math, ported to C#.
 - ffmpeg, optional (installed on this machine via `winget install Gyan.FFmpeg`) —
   only needed for audio in exported video; without it, video export still
   works, just silent
+- Inno Setup, only needed to build the installer (installed on this
+  machine via `winget install JRSoftware.InnoSetup`) — not needed to
+  build/run/test the app itself, see `installer/README.md`
 
 ### NuGet package dependencies
 
@@ -368,8 +371,14 @@ hand-edited settings file are clamped before use rather than trusted
 outright. The app requests no elevated privileges (no manifest, runs
 `asInvoker`).
 
-## Packaging as a standalone .exe (optional, not done yet)
+## Installer
 
-`dotnet publish FisheyeFlattener -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`
-produces a single-file executable that doesn't require the .NET runtime to
-be installed separately. Not set up yet — ask if you want this wired up.
+`installer/` builds a real Windows installer (`FisheyeFlattener-Setup.exe`,
+via [Inno Setup](https://jrsoftware.org/isinfo.php)) from a self-contained
+publish - the .NET runtime and OpenCV's native DLLs are bundled, so a
+target machine needs nothing pre-installed for the app itself. ffmpeg
+isn't bundled (much larger, separately licensed; the app already works
+without it, just silently) - the installer instead offers an opt-in
+"install ffmpeg via winget" task. See `installer/README.md` for build
+steps and how the initial build was verified (silent install, launch,
+silent uninstall - not just "it compiled").

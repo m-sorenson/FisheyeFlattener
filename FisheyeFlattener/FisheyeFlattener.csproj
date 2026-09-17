@@ -10,6 +10,12 @@
          support, and NotifyIcon is the standard way to get one on .NET/Windows. -->
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <!-- Without this, a self-contained publish bundles every language's satellite
+         resource DLLs for WPF/WinForms' own framework strings (13 languages'
+         worth, unused - the app's own UI text is all English anyway and isn't
+         localized), inflating the installer for no benefit. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

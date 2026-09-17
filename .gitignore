@@ -8,3 +8,8 @@ ff_err*.log
 *.mov
 *.avi
 *.mkv
+
+# Built installer output (large binary - build it from installer/FisheyeFlattener.iss
+# instead of committing it; see installer/README.md).
+installer/output/
+installer/compile.log
