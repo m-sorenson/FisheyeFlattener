@@ -94,11 +94,71 @@ public partial class MainWindow : System.Windows.Window
 
         InitializeComponent();
         InitializeTrayIcon();
+        ApplySettings(AppSettings.Load());
         Closed += (_, _) =>
         {
+            SaveSettings();
             ReleaseVideoResources();
             _trayIcon?.Dispose();
         };
+    }
+
+    /// <summary>Applies a settings snapshot to the live UI - shared by startup
+    /// (loaded from disk) and the "reset to defaults" menu action (a fresh
+    /// <see cref="AppSettings"/>), so both go through the exact same code path.</summary>
+    private void ApplySettings(AppSettings s)
+    {
+        if (s.WindowLeft.HasValue && s.WindowTop.HasValue)
+        {
+            // Clamp so a saved position can't restore the window fully off-screen -
+            // e.g. a second monitor that was unplugged since the last run.
+            double left = Math.Clamp(s.WindowLeft.Value, SystemParameters.VirtualScreenLeft,
+                SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth - 100);
+            double top = Math.Clamp(s.WindowTop.Value, SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 100);
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = left;
+            Top = top;
+        }
+        Width = Math.Max(MinWidth, s.WindowWidth);
+        Height = Math.Max(MinHeight, s.WindowHeight);
+        WindowState = s.IsMaximized ? WindowState.Maximized : WindowState.Normal;
+
+        // Setting IsChecked triggers ViewPanelToggle_Changed, which applies the
+        // matching panel Visibility - no need to set that directly here too.
+        LensCalibrationMenuItem.IsChecked = s.ShowLensCalibrationPanel;
+        PreviewOutputSettingsMenuItem.IsChecked = s.ShowPreviewOutputSettingsPanel;
+
+        PerspWidthSlider.Value = s.OutputWidth;
+        PerspHeightSlider.Value = s.OutputHeight;
+
+        VolumeSlider.Value = s.Volume;
+        _isMuted = s.IsMuted;
+        ApplyVolume();
+    }
+
+    private void SaveSettings()
+    {
+        // RestoreBounds (not ActualWidth/Left/etc.) when maximized, so a maximized
+        // window remembers the size/position it'll return to on un-maximizing rather
+        // than the full-screen dimensions.
+        bool maximized = WindowState == WindowState.Maximized;
+        var bounds = maximized ? RestoreBounds : new System.Windows.Rect(Left, Top, ActualWidth, ActualHeight);
+
+        new AppSettings
+        {
+            WindowWidth = bounds.Width,
+            WindowHeight = bounds.Height,
+            WindowLeft = bounds.Left,
+            WindowTop = bounds.Top,
+            IsMaximized = maximized,
+            ShowLensCalibrationPanel = LensCalibrationMenuItem.IsChecked,
+            ShowPreviewOutputSettingsPanel = PreviewOutputSettingsMenuItem.IsChecked,
+            OutputWidth = (int)PerspWidthSlider.Value,
+            OutputHeight = (int)PerspHeightSlider.Value,
+            Volume = VolumeSlider.Value,
+            IsMuted = _isMuted,
+        }.Save();
     }
 
     private void InitializeTrayIcon()
@@ -161,6 +221,14 @@ public partial class MainWindow : System.Windows.Window
     }
 
     private void ExitMenuItem_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void ResetPreferencesMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var defaults = new AppSettings();
+        ApplySettings(defaults);
+        defaults.Save();
+        StatusText.Text = "Preferences reset to defaults.";
+    }
 
     /// <summary>Each side panel is an independent, toggleable "module" - hiding one
     /// just collapses its GroupBox, it doesn't affect the other or anything in the

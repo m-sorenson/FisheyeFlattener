@@ -26,6 +26,8 @@
                 <MenuItem Header="_Reset View" InputGestureText="Ctrl+R" Click="ResetViewButton_Click"/>
                 <MenuItem Header="_Auto-detect Circle" Click="AutoDetectButton_Click"/>
                 <MenuItem Header="_Snap Level..." Click="SnapLevelButton_Click"/>
+                <Separator/>
+                <MenuItem Header="Reset _Preferences to Defaults" Click="ResetPreferencesMenuItem_Click"/>
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem x:Name="LensCalibrationMenuItem" Header="Lens Calibration"

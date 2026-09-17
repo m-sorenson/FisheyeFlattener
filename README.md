@@ -70,6 +70,19 @@ each is its own "module" that can be shown or hidden without affecting
 the other, collapsing that GroupBox entirely rather than just graying it
 out. **About** shows the app name/version.
 
+**Preferences persist** across runs, saved to
+`%LocalAppData%\FisheyeFlattener\settings.json` on exit and restored on
+next launch: window size/position (clamped so a since-unplugged monitor
+can't restore it off-screen), which of the two side panels are shown,
+preferred export resolution, and playback volume/mute. **Edit → Reset
+Preferences to Defaults** clears all of that back to defaults
+immediately (and saves that reset right away, rather than waiting for
+the next exit). Deliberately *not* persisted: lens calibration, pan/
+tilt/zoom/roll, and the source flip checkboxes - those describe whatever
+specific video/image is currently loaded, not a standing preference;
+carrying an old file's calibration onto a brand new one would silently
+mis-frame it rather than helpfully "remembering" anything.
+
 ## Workflow
 
 1. In Protect, export the fisheye clip or snapshot (raw circular fisheye
