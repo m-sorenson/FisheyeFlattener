@@ -1,6 +1,7 @@
 <Window x:Class="FisheyeFlattener.ExportProgressWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="Assets/AppIcon.ico"
         Title="Exporting" Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         WindowStyle="ToolWindow" ShowInTaskbar="False">

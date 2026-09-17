@@ -78,6 +78,12 @@ public partial class MainWindow : System.Windows.Window
     // before that call happens (constructor-body assignment runs too late).
     private readonly DispatcherTimer _previewDebounce = new() { Interval = TimeSpan.FromMilliseconds(60) };
 
+    // WPF has no built-in system tray icon - System.Windows.Forms.NotifyIcon is the
+    // standard way to get one. Fully-qualified throughout (rather than a blanket
+    // "using System.Windows.Forms;") since that namespace's MessageBox/Application
+    // types would otherwise collide with the System.Windows ones already used here.
+    private System.Windows.Forms.NotifyIcon? _trayIcon;
+
     public MainWindow()
     {
         _previewDebounce.Tick += (_, _) =>
@@ -87,7 +93,42 @@ public partial class MainWindow : System.Windows.Window
         };
 
         InitializeComponent();
-        Closed += (_, _) => ReleaseVideoResources();
+        InitializeTrayIcon();
+        Closed += (_, _) =>
+        {
+            ReleaseVideoResources();
+            _trayIcon?.Dispose();
+        };
+    }
+
+    private void InitializeTrayIcon()
+    {
+        var resourceInfo = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/AppIcon.ico"));
+        if (resourceInfo == null)
+            return;
+
+        using var stream = resourceInfo.Stream;
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add("Show Fisheye Flattener", null, (_, _) => RestoreFromTray());
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("Exit", null, (_, _) => System.Windows.Application.Current.Shutdown());
+
+        _trayIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = new System.Drawing.Icon(stream),
+            Text = "Fisheye Flattener",
+            ContextMenuStrip = menu,
+            Visible = true,
+        };
+        _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Activate();
     }
 
     // ------------------------------------------------------------- events --

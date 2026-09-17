@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- For System.Windows.Forms.NotifyIcon - WPF has no built-in system tray icon
+         support, and NotifyIcon is the standard way to get one on .NET/Windows. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +20,19 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FisheyeFlattener.Core\FisheyeFlattener.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\AppIcon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UseWindowsForms implicitly adds a global "using System.Windows.Forms;",
+         which collides with WPF's own Application/UserControl/KeyEventArgs/
+         MouseEventArgs types used unqualified throughout this project. Removing it
+         means WinForms types (NotifyIcon etc.) must be referenced fully-qualified,
+         which is what the tray icon code already does. -->
+    <Using Remove="System.Windows.Forms" />
   </ItemGroup>
 
 </Project>

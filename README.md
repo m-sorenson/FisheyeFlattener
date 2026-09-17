@@ -21,7 +21,10 @@ display-forwarding involved. Same dewarp math, ported to C#.
 - `FisheyeFlattener` — the WPF UI (`MainWindow`), a reusable
   `NumericSlider` control (label + slider + numeric box, used for every
   calibration/dewarp parameter), file open/export, and video export on a
-  background thread with a progress bar.
+  background thread with a progress popup. `Assets/AppIcon.ico` is a
+  generated (not hand-drawn) multi-resolution icon - a stylized camera
+  lens/aperture - used as the app/taskbar/title-bar icon and the system
+  tray icon; see `MainWindow.InitializeTrayIcon`.
 - `FisheyeFlattener.Tests` — xUnit tests for the Core math, mirroring the
   Python test suite.
 
@@ -48,6 +51,12 @@ Or open `FisheyeFlattener.sln` in Visual Studio / VS Code and run from there.
 ```powershell
 dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 ```
+
+A system tray icon appears whenever the app is running (double-click it,
+or right-click → **Show Fisheye Flattener**, to bring the window to
+front; right-click → **Exit** to close the app). It's purely an
+indicator/shortcut - closing the main window still exits normally rather
+than minimizing to the tray.
 
 ## Workflow
 

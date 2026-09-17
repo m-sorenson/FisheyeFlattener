@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:controls="clr-namespace:FisheyeFlattener.Controls"
         mc:Ignorable="d"
+        Icon="Assets/AppIcon.ico"
         Title="Fisheye Flattener" Height="800" Width="1300" MinHeight="600" MinWidth="900">
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
