@@ -13,6 +13,16 @@ This is a rebuild of the original Python/PySide6 prototype (see
 `../fisheye-flattener`) as a native WPF app — no Python, no WSL, no
 display-forwarding involved. Same dewarp math, ported to C#.
 
+## Download
+
+[![Latest release](https://img.shields.io/github/v/release/m-sorenson/FisheyeFlattener)](https://github.com/m-sorenson/FisheyeFlattener/releases/latest)
+
+**[Download FisheyeFlattener-Setup.exe](https://github.com/m-sorenson/FisheyeFlattener/releases/latest/download/FisheyeFlattener-Setup.exe)**
+— run it, no other software required first (the installer bundles the
+.NET runtime and everything else the app itself needs). See
+**[Releases](https://github.com/m-sorenson/FisheyeFlattener/releases)**
+for release notes and every past version. Windows 10/11 (64-bit) only.
+
 ## Project layout
 
 - `FisheyeFlattener.Core` — the dewarp math, calibration, and image/video
