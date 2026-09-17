@@ -12,7 +12,7 @@
 ;   "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\FisheyeFlattener.iss
 
 #define AppName "Fisheye Flattener"
-#define AppVersion "1.0.2"
+#define AppVersion "1.0.3"
 #define AppPublisher "M-Sorenson"
 #define AppExeName "FisheyeFlattener.exe"
 #define PublishDir "..\FisheyeFlattener\bin\Release\net8.0-windows\win-x64\publish"
@@ -51,6 +51,20 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[UninstallDelete]
+; The app saves its own preferences (window size/position, which side panels
+; are shown, export resolution, volume) to %LocalAppData%\FisheyeFlattener\
+; settings.json at runtime - a location and file the [Files] section above has
+; no knowledge of, since the app itself creates it, not the installer. Without
+; this, uninstalling left it behind - confirmed by an actual install-run-
+; uninstall cycle, not assumed: installed, launched the app once (which writes
+; this file on close), uninstalled, and found the file untouched while every
+; other known location (install dir, Start Menu, desktop shortcut, registry
+; uninstall entry) was correctly removed. Just a small preferences file, no
+; user content, so removing it unconditionally rather than asking is fine -
+; nothing lost on reinstall beyond needing to re-pick window size/volume again.
+Type: filesandordirs; Name: "{localappdata}\FisheyeFlattener"
 
 [Run]
 ; winget lives under the current user's WindowsApps folder - launched via cmd /C

@@ -56,7 +56,15 @@ a missing ffmpeg (see the main README's **Workflow** section).
 - Optional "install ffmpeg via winget" checkbox (unchecked by default -
   see above).
 - Registers a normal Windows uninstaller (Add/Remove Programs → Fisheye
-  Flattener), which removes every installed file.
+  Flattener), which removes every installed file - **and** the app's own
+  runtime preferences file at `%LocalAppData%\FisheyeFlattener\
+  settings.json` (window size/position, side panel visibility, export
+  resolution, volume), via `[UninstallDelete]`. That file lives outside
+  the install directory and is created by the app itself while running,
+  not by the installer, so it wouldn't otherwise be known to the
+  uninstaller at all - confirmed as a real, verified-then-fixed gap: an
+  actual install → run once → uninstall cycle left it behind before this
+  was added, and the same cycle confirmed it's gone after.
 
 ### Uninstall safeguards (`[Code]` section)
 
