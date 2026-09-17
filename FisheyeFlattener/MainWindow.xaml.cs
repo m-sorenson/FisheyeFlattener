@@ -120,8 +120,11 @@ public partial class MainWindow : System.Windows.Window
             Left = left;
             Top = top;
         }
-        Width = Math.Max(MinWidth, s.WindowWidth);
-        Height = Math.Max(MinHeight, s.WindowHeight);
+        // Clamped on both ends - a hand-edited (or otherwise corrupted) settings file
+        // with an absurd width/height shouldn't be able to ask WPF to size a window
+        // to it; bounded by the virtual screen size the same way position is above.
+        Width = Math.Clamp(s.WindowWidth, MinWidth, SystemParameters.VirtualScreenWidth);
+        Height = Math.Clamp(s.WindowHeight, MinHeight, SystemParameters.VirtualScreenHeight);
         WindowState = s.IsMaximized ? WindowState.Maximized : WindowState.Normal;
 
         // Setting IsChecked triggers ViewPanelToggle_Changed, which applies the

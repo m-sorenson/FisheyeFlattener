@@ -315,6 +315,29 @@ see `PerspectivePanHasNoRollDriftForRealVerticalLine` in
 down at the fisheye's center, ~90 = at the horizon) — not a tilt offset
 from some other reference.
 
+## Security posture
+
+The app makes no network calls at all (no HTTP client, no sockets) - the
+entire attack surface is local: the files you open, and the ffmpeg/
+ffprobe processes it shells out to. All process invocations pass
+arguments via `ProcessStartInfo.ArgumentList` (never a single
+interpolated command-line string), which avoids shell/argument
+injection regardless of what characters end up in a file path. `dotnet
+list package --vulnerable` is clean across all three projects.
+Malformed/corrupted input files (verified against a text file renamed
+to `.jpg`, random bytes and an empty file renamed to `.mp4`, and a
+truncated-but-header-valid `.mp4`) fail with a normal catchable
+exception rather than crashing the process - though that's this app's
+own handling, not a guarantee about OpenCV/ffmpeg's own native
+decoders, which are the realistic attack surface for a deliberately
+crafted malicious media file (mitigated by keeping those dependencies
+current, not something this app's C# code can fix on its own). Settings
+are deserialized with `System.Text.Json` into a fixed POCO (no
+polymorphic/arbitrary-type deserialization), and numeric values from a
+hand-edited settings file are clamped before use rather than trusted
+outright. The app requests no elevated privileges (no manifest, runs
+`asInvoker`).
+
 ## Packaging as a standalone .exe (optional, not done yet)
 
 `dotnet publish FisheyeFlattener -c Release -r win-x64 --self-contained -p:PublishSingleFile=true`

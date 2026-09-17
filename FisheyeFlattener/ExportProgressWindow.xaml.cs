@@ -169,11 +169,15 @@ public partial class ExportProgressWindow : Window
         try
         {
             // /select, highlights the file itself in Explorer rather than just opening
-            // its containing folder with nothing selected.
-            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_revealPath}\"")
-            {
-                UseShellExecute = true,
-            });
+            // its containing folder with nothing selected. Built via ArgumentList
+            // (one token, .NET handles the quoting/escaping) rather than a hand-
+            // interpolated "..." string - NTFS forbids '"' in filenames so the export
+            // path itself can't break out of a manually-quoted string today, but
+            // string-building process arguments is a pattern worth avoiding on
+            // principle rather than relying on that filesystem restriction to hold.
+            var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+            psi.ArgumentList.Add($"/select,{_revealPath}");
+            Process.Start(psi);
         }
         catch
         {
