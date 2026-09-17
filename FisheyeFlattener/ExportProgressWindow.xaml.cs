@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 
 namespace FisheyeFlattener;
 
@@ -23,6 +26,54 @@ public partial class ExportProgressWindow : Window
     public ExportProgressWindow()
     {
         InitializeComponent();
+        OpenLocationIcon.Source = GetStandardFolderIcon();
+    }
+
+    // Pulls the OS's own stock folder icon (the exact one Explorer uses, whatever
+    // Windows version/theme this machine has) rather than a font glyph that only
+    // approximates it - SHGetStockIconInfo is the documented way to get standard
+    // shell icons by ID instead of guessing at a real file/folder path.
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern int SHGetStockIconInfo(uint siid, uint uFlags, ref ShStockIconInfo psii);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ShStockIconInfo
+    {
+        public uint cbSize;
+        public IntPtr hIcon;
+        public int iSysImageIndex;
+        public int iIcon;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+        public string szPath;
+    }
+
+    private const uint SiidFolder = 3;
+    private const uint ShgsiIcon = 0x000000100;
+    private const uint ShgsiSmallIcon = 0x000000001;
+
+    private static BitmapSource? GetStandardFolderIcon()
+    {
+        var info = new ShStockIconInfo();
+        info.cbSize = (uint)Marshal.SizeOf<ShStockIconInfo>();
+        int hr = SHGetStockIconInfo(SiidFolder, ShgsiIcon | ShgsiSmallIcon, ref info);
+        if (hr != 0 || info.hIcon == IntPtr.Zero)
+            return null;
+
+        try
+        {
+            var src = Imaging.CreateBitmapSourceFromHIcon(info.hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            src.Freeze();
+            return src;
+        }
+        finally
+        {
+            // CreateBitmapSourceFromHIcon copies the pixel data - the source HICON
+            // from the shell isn't needed (or owned by us to leak) after that.
+            DestroyIcon(info.hIcon);
+        }
     }
 
     public void UpdateProgress(double overallPercent, double stagePercent, string status)
