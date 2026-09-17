@@ -131,6 +131,61 @@ public partial class MainWindow : System.Windows.Window
         Activate();
     }
 
+    // --------------------------------------------------------------- menu --
+
+    // Menu items reuse the same handlers as their equivalent toolbar buttons
+    // (OpenButton_Click, ExportButton_Click, ResetViewButton_Click,
+    // AutoDetectButton_Click, SnapLevelButton_Click below) rather than duplicating
+    // logic - none of those handlers depend on `sender` being the specific button.
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.Control)
+            return;
+
+        if (e.Key == Key.O)
+        {
+            OpenButton_Click(sender, e);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.E && ExportButton.IsEnabled)
+        {
+            ExportButton_Click(sender, e);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.R)
+        {
+            ResetViewButton_Click(sender, e);
+            e.Handled = true;
+        }
+    }
+
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>Each side panel is an independent, toggleable "module" - hiding one
+    /// just collapses its GroupBox, it doesn't affect the other or anything in the
+    /// preview/playback area.</summary>
+    private void ViewPanelToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        // IsChecked="True" in XAML fires this during InitializeComponent(), before
+        // the GroupBoxes further down the visual tree have been constructed yet.
+        if (LensCalibrationPanel == null || PreviewOutputSettingsPanel == null)
+            return;
+
+        LensCalibrationPanel.Visibility = LensCalibrationMenuItem.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+        PreviewOutputSettingsPanel.Visibility = PreviewOutputSettingsMenuItem.IsChecked ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        MessageBox.Show(this,
+            $"Fisheye Flattener\nVersion {version}\n\n" +
+            "Flattens Ubiquiti Protect fisheye camera exports into a normal-looking, " +
+            "navigable view - drag to look around, scroll to zoom.",
+            "About Fisheye Flattener", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     // ------------------------------------------------------------- events --
 
     private void OpenButton_Click(object sender, RoutedEventArgs e)

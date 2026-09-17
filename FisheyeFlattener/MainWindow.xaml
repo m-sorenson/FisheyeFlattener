@@ -6,8 +6,41 @@
         xmlns:controls="clr-namespace:FisheyeFlattener.Controls"
         mc:Ignorable="d"
         Icon="Assets/AppIcon.ico"
+        PreviewKeyDown="MainWindow_PreviewKeyDown"
         Title="Fisheye Flattener" Height="800" Width="1300" MinHeight="600" MinWidth="900">
-    <Grid Margin="10">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Menu Grid.Row="0">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open Fisheye File..." InputGestureText="Ctrl+O" Click="OpenButton_Click"/>
+                <MenuItem Header="_Export Flattened..." InputGestureText="Ctrl+E" Click="ExportButton_Click"
+                          IsEnabled="{Binding IsEnabled, ElementName=ExportButton}"/>
+                <Separator/>
+                <MenuItem Header="E_xit" InputGestureText="Alt+F4" Click="ExitMenuItem_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Reset View" InputGestureText="Ctrl+R" Click="ResetViewButton_Click"/>
+                <MenuItem Header="_Auto-detect Circle" Click="AutoDetectButton_Click"/>
+                <MenuItem Header="_Snap Level..." Click="SnapLevelButton_Click"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem x:Name="LensCalibrationMenuItem" Header="Lens Calibration"
+                          IsCheckable="True" IsChecked="True"
+                          Checked="ViewPanelToggle_Changed" Unchecked="ViewPanelToggle_Changed"/>
+                <MenuItem x:Name="PreviewOutputSettingsMenuItem" Header="Preview Output Settings"
+                          IsCheckable="True" IsChecked="True"
+                          Checked="ViewPanelToggle_Changed" Unchecked="ViewPanelToggle_Changed"/>
+            </MenuItem>
+            <MenuItem Header="_About">
+                <MenuItem Header="About Fisheye Flattener..." Click="AboutMenuItem_Click"/>
+            </MenuItem>
+        </Menu>
+
+    <Grid Grid.Row="1" Margin="10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="3*"/>
             <ColumnDefinition Width="10"/>
@@ -73,7 +106,7 @@
         <!-- Right: controls -->
         <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <GroupBox Header="Lens Calibration" Padding="8" Margin="0,0,0,10">
+                <GroupBox x:Name="LensCalibrationPanel" Header="Lens Calibration" Padding="8" Margin="0,0,0,10">
                     <StackPanel>
                         <controls:NumericSlider x:Name="CenterXSlider" Label="Center X"
                                                  Minimum="0" Maximum="8000" ValueChanged="Param_ValueChanged"/>
@@ -96,7 +129,7 @@
                     </StackPanel>
                 </GroupBox>
 
-                <GroupBox Header="View" Padding="8">
+                <GroupBox x:Name="PreviewOutputSettingsPanel" Header="Preview Output Settings" Padding="8">
                     <StackPanel>
                         <TextBlock Text="Drag the preview to look around. Scroll to zoom."
                                    Margin="0,0,0,8" TextWrapping="Wrap" Opacity="0.8"/>
@@ -118,5 +151,6 @@
 
             </StackPanel>
         </ScrollViewer>
+    </Grid>
     </Grid>
 </Window>

@@ -58,6 +58,18 @@ front; right-click → **Exit** to close the app). It's purely an
 indicator/shortcut - closing the main window still exits normally rather
 than minimizing to the tray.
 
+A menu bar (**File**, **Edit**, **View**, **About**) sits above the
+preview. **File** and **Edit** just give keyboard/menu access to the
+same actions as their equivalent toolbar buttons (Open/Export/Exit;
+Reset View/Auto-detect Circle/Snap Level) - nothing new there, same
+underlying handlers. **View** is the interesting one: **Lens
+Calibration** and **Preview Output Settings** (the two right-side
+panels, the latter renamed from a plain "View" GroupBox to avoid
+colliding with the new View *menu*) are independent, checkable toggles -
+each is its own "module" that can be shown or hidden without affecting
+the other, collapsing that GroupBox entirely rather than just graying it
+out. **About** shows the app name/version.
+
 ## Workflow
 
 1. In Protect, export the fisheye clip or snapshot (raw circular fisheye
