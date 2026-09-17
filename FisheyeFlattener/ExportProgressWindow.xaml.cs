@@ -169,15 +169,21 @@ public partial class ExportProgressWindow : Window
         try
         {
             // /select, highlights the file itself in Explorer rather than just opening
-            // its containing folder with nothing selected. Built via ArgumentList
-            // (one token, .NET handles the quoting/escaping) rather than a hand-
-            // interpolated "..." string - NTFS forbids '"' in filenames so the export
-            // path itself can't break out of a manually-quoted string today, but
-            // string-building process arguments is a pattern worth avoiding on
-            // principle rather than relying on that filesystem restriction to hold.
-            var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
-            psi.ArgumentList.Add($"/select,{_revealPath}");
-            Process.Start(psi);
+            // its containing folder with nothing selected. MUST be a single arguments
+            // STRING with the quotes hugging just the path ("/select,\"C:\...\"") -
+            // explorer.exe's argument parsing for this flag is not standard argv
+            // parsing, and passing the same content via ArgumentList (which wraps the
+            // *entire* "/select,C:\..." token in quotes when the path contains a
+            // space, since that's a normal/valid single argv token) makes explorer.exe
+            // silently fail to parse it and fall back to opening Documents instead -
+            // confirmed by screenshot-testing both forms directly, not just reasoned
+            // about, after this shipped and a real user hit it against an installed
+            // build. NTFS forbids '"' in filenames, so _revealPath (a SaveFileDialog
+            // result) can't break out of this manual quoting.
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_revealPath}\"")
+            {
+                UseShellExecute = true,
+            });
         }
         catch
         {

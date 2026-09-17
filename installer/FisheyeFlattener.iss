@@ -12,7 +12,7 @@
 ;   "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\FisheyeFlattener.iss
 
 #define AppName "Fisheye Flattener"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Mike Sorenson"
 #define AppExeName "FisheyeFlattener.exe"
 #define PublishDir "..\FisheyeFlattener\bin\Release\net8.0-windows\win-x64\publish"
