@@ -75,8 +75,17 @@ dotnet test FisheyeFlattener.Tests/FisheyeFlattener.Tests.csproj
 5. The preview updates live as you drag or adjust sliders (debounced
    ~60ms). Hit **Export Flattened...** to write the *current view* as a
    full-resolution image, or process an entire video through that same
-   view (shows a progress bar; runs on a background thread so the UI stays
-   responsive). Video export includes the original audio track — OpenCV's
+   view. For video, a separate progress popup tracks frame-by-frame
+   export progress with a **Cancel** button (video processing runs on a
+   background thread so the main window stays responsive and usable while
+   it's up), then switches to an **Open Export Location** button once
+   done — clicking it opens Explorer with the exported file selected.
+   Cancel only works during the frame-processing phase; once that's done
+   and the ffmpeg audio-mux step starts (usually quick), the button
+   disables itself rather than accept a click that can't do anything.
+   Cancelling (or a failure before the mux step) cleans up the
+   intermediate video-only temp file rather than leaving it behind.
+   Video export includes the original audio track — OpenCV's
    video writer has no audio support at all, so this app writes the
    flattened frames video-only, then shells out to **ffmpeg** (if
    installed) as a second step to copy the original audio onto the result.

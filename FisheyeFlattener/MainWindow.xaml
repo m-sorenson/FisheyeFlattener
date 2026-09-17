@@ -20,7 +20,6 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Border Grid.Row="0" Background="#202020" BorderBrush="#404040" BorderThickness="1">
@@ -66,9 +65,7 @@
                         Click="ResetViewButton_Click"/>
             </StackPanel>
 
-            <ProgressBar x:Name="ExportProgress" Grid.Row="3" Height="18" Margin="0,8,0,0" Visibility="Collapsed"/>
-
-            <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,6,0,0"
+            <TextBlock x:Name="StatusText" Grid.Row="3" Margin="0,6,0,0"
                        Text="Open an exported Protect fisheye image or clip to begin. Drag to look around, scroll to zoom, click the image then use arrow keys to nudge."/>
         </Grid>
 

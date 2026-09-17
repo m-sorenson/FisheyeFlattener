@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -586,29 +587,36 @@ public partial class MainWindow : System.Windows.Window
             PausePlayback();
             ExportButton.IsEnabled = false;
             OpenButton.IsEnabled = false;
-            ExportProgress.Visibility = Visibility.Visible;
-            ExportProgress.Value = 0;
             StatusText.Text = "Exporting video...";
 
             string inPath = _sourcePath;
             string outPath = dialog.FileName;
             string tempVideoOnlyPath = Path.Combine(Path.GetTempPath(), $"ff_{Guid.NewGuid():N}.mp4");
 
+            var cts = new CancellationTokenSource();
+            var progressWindow = new ExportProgressWindow { Owner = this, Title = "Exporting video" };
+            progressWindow.CancelRequested += (_, _) => cts.Cancel();
+            progressWindow.UpdateProgress(0, "Exporting video...");
+            progressWindow.Show();
+
             try
             {
                 (bool includedAudio, double? videoDur, double? audioDur) = await Task.Run(() =>
                 {
-                    var keepSegments = VideoProcessor.ProcessVideo(inPath, tempVideoOnlyPath, mapX, mapY, transform, (done, total) =>
-                    {
-                        Dispatcher.Invoke(() =>
+                    var keepSegments = VideoProcessor.ProcessVideo(
+                        inPath, tempVideoOnlyPath, mapX, mapY, transform,
+                        (done, total) =>
                         {
-                            if (total > 0)
-                                ExportProgress.Value = 100.0 * done / total;
-                            StatusText.Text = $"Exporting video... frame {done}/{(total > 0 ? total.ToString() : "?")}";
-                        });
-                    });
+                            double pct = total > 0 ? 100.0 * done / total : 0;
+                            progressWindow.UpdateProgress(pct, $"Exporting video... frame {done}/{(total > 0 ? total.ToString() : "?")}");
+                        },
+                        () => cts.Token.IsCancellationRequested);
 
-                    Dispatcher.Invoke(() => StatusText.Text = "Merging audio...");
+                    // Cancellation only stops the frame-by-frame loop above - the ffmpeg
+                    // mux step that follows runs to completion once started, so a click
+                    // here wouldn't do anything.
+                    progressWindow.DisableCancel();
+                    progressWindow.SetIndeterminate("Merging audio...");
                     bool audioOk = AudioMuxer.MuxAudio(tempVideoOnlyPath, inPath, outPath, keepSegments);
                     var (v, a) = AudioMuxer.GetStreamDurations(outPath);
                     return (audioOk, v, a);
@@ -617,22 +625,32 @@ public partial class MainWindow : System.Windows.Window
                 string durNote = videoDur.HasValue && audioDur.HasValue
                     ? $" (video {videoDur:0.00}s, audio {audioDur:0.00}s, Δ{Math.Abs(videoDur.Value - audioDur.Value):0.00}s)"
                     : "";
-                StatusText.Text = includedAudio
+                string completeMsg = includedAudio
                     ? $"Video export complete.{durNote}"
                     : $"Video export complete - no audio: {AudioMuxer.LastSkipReason}";
+                StatusText.Text = completeMsg;
+                progressWindow.ShowComplete(completeMsg, outPath);
+            }
+            catch (OperationCanceledException)
+            {
+                StatusText.Text = "Video export cancelled.";
+                progressWindow.ShowCancelled();
             }
             catch (Exception ex)
             {
                 StatusText.Text = "Video export failed.";
-                MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                progressWindow.ShowError(ex.Message);
             }
             finally
             {
                 mapX.Dispose();
                 mapY.Dispose();
-                ExportProgress.Visibility = Visibility.Collapsed;
                 ExportButton.IsEnabled = true;
                 OpenButton.IsEnabled = true;
+                // Cleans up the intermediate video-only file whenever the run didn't
+                // reach a successful mux (cancelled, or failed before/during muxing) -
+                // a no-op if MuxAudio already consumed/renamed it.
+                try { if (File.Exists(tempVideoOnlyPath)) File.Delete(tempVideoOnlyPath); } catch { /* best effort */ }
             }
         }
         else

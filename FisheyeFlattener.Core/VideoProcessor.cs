@@ -26,7 +26,9 @@ public static class VideoProcessor
     /// <summary>
     /// Dewarps every frame of <paramref name="inPath"/> using the same map, writes to
     /// <paramref name="outPath"/>. <paramref name="cancelCb"/>, if given, is polled each
-    /// frame; returning true stops early.
+    /// frame; returning true throws <see cref="OperationCanceledException"/> (rather
+    /// than stopping silently) so the caller can tell a user-requested cancel apart
+    /// from a genuine decode failure partway through the source.
     ///
     /// Returns the list of (start, end) time ranges, in the *source* file's own
     /// timeline (seconds), that the audio track should be trimmed down to match -
@@ -93,8 +95,12 @@ public static class VideoProcessor
             using var frame = new Mat();
             while (true)
             {
+                // A thrown cancellation (rather than a silent break) keeps it distinct
+                // from genuine end-of-stream/decode-failure below - both would otherwise
+                // hit the "only read X of Y frames" check and get reported as a decode
+                // error instead of a user-requested cancel.
                 if (cancelCb?.Invoke() == true)
-                    break;
+                    throw new OperationCanceledException();
 
                 // The upcoming frame's timestamp, queried before Read() advances past it.
                 double ts = cap.Get(VideoCaptureProperties.PosMsec);
@@ -371,7 +377,7 @@ public static class VideoProcessor
         while (true)
         {
             if (cancelCb?.Invoke() == true)
-                break;
+                throw new OperationCanceledException();
             if (!cap.Read(frame) || frame.Empty())
                 break;
 
