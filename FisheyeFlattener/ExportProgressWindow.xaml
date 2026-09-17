@@ -4,7 +4,7 @@
         Icon="Assets/AppIcon.ico"
         Title="Exporting" Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
-        WindowStyle="ToolWindow" ShowInTaskbar="False">
+        ShowInTaskbar="False">
     <!-- SizeToContent="Height" (rather than a guessed fixed Height) so the window
          always fits its content - a fixed height previously clipped the Cancel
          button at the bottom. -->
